@@ -1,0 +1,13 @@
+[package]
+name = "storage"
+version = "0.1.0"
+authors = ["willesxm <willeslau@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = {version ="1.0.126", features =["derive"]}
+num-traits = { version = "0.2" }
+
+block = { path = "../block", version = "0.1.0" }
