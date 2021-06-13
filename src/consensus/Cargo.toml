@@ -1,0 +1,20 @@
+[package]
+name = "consensus"
+version = "0.1.0"
+authors = ["willesxm <willeslau@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = { version = "0.4.14" }
+sha2 = { version = "0.9.5" }
+base64 = { version = "0.13.0" }
+serde_json = { version = "1.0.64" }
+serde = {version ="1.0.126", features =["derive"]}
+
+block = { path = "../block", version = "0.1.0" }
+primitives = { path = '../primitives', version = "0.1.0"}
+
+[dev-dependencies]
+transaction = { path = "../transaction", version = "0.1.0" }

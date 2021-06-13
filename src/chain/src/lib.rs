@@ -1,7 +1,8 @@
-mod in_memory;
+use num_traits::ops::checked::CheckedAdd;
 
 use block::Block;
-use num_traits::ops::checked::CheckedAdd;
+
+mod in_memory;
 
 pub trait BlockChain {
     // TODO: maybe we can use deref?
