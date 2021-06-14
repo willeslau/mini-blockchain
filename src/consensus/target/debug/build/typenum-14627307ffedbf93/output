@@ -1,2 +1,0 @@
-cargo:rustc-env=TYPENUM_BUILD_CONSTS=/home/lxm/Documents/Code/mini-blockchain/src/consensus/target/debug/build/typenum-14627307ffedbf93/out/consts.rs
-cargo:rustc-env=TYPENUM_BUILD_OP=/home/lxm/Documents/Code/mini-blockchain/src/consensus/target/debug/build/typenum-14627307ffedbf93/out/op.rs
