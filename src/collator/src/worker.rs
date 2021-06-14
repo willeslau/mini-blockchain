@@ -51,7 +51,9 @@ impl <Executable, Collator> CollatorWorker<Executable, Collator>
         }
     }
 
-    pub fn run(&mut self) -> JoinHandle<()> {
+    /// Start the collator. This would trigger a new thread to run.
+    /// Implement stop according to https://doc.rust-lang.org/book/ch20-03-graceful-shutdown-and-cleanup.html
+    pub fn start(&mut self) -> JoinHandle<()> {
         // if self.started.into_inner() { return; }
         // self.started.compare_exchange(false,true,Ordering::SeqCst,Ordering::Acquire);
 
@@ -144,7 +146,7 @@ mod tests {
             assert_eq!(count, 10000);
         });
 
-        let h = worker.run();
+        let h = worker.start();
 
         for t in threads {
             t.join();
