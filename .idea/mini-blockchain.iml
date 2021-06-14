@@ -9,6 +9,7 @@
       <sourceFolder url="file://$MODULE_DIR$/src/transaction/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/consensus/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/primitives/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src/collator/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/src/block/target" />
       <excludeFolder url="file://$MODULE_DIR$/src/transaction/target" />
@@ -16,6 +17,7 @@
       <excludeFolder url="file://$MODULE_DIR$/src/chain/target" />
       <excludeFolder url="file://$MODULE_DIR$/src/consensus/target" />
       <excludeFolder url="file://$MODULE_DIR$/src/primitives/target" />
+      <excludeFolder url="file://$MODULE_DIR$/src/collator/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

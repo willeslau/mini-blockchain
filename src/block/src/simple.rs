@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
 use primitives::StringSerializable;
-use transaction::MockTransaction;
+use transaction::MockedExecutable;
 
 use crate::{Block, Header};
 
@@ -43,7 +43,7 @@ pub type SimpleBlockId = u64;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SimpleBlock {
     header: SimpleHeader,
-    executables: Vec<MockTransaction>
+    executables: Vec<MockedExecutable>
 }
 
 /// Make sure the block can be converted to str
@@ -60,9 +60,9 @@ impl StringSerializable for SimpleBlock {
 impl Block for SimpleBlock {
     type Header = SimpleHeader;
     type Hash = [u8; 32];
-    type Executable = MockTransaction;
+    type Executable = MockedExecutable;
 
-    fn new(header: SimpleHeader, executables: Vec<MockTransaction>) -> Self {
+    fn new(header: SimpleHeader, executables: Vec<MockedExecutable>) -> Self {
         SimpleBlock{ header, executables }
     }
 
@@ -86,14 +86,14 @@ impl Block for SimpleBlock {
 mod tests {
     use crate::{SimpleBlock, Block, Header};
     use crate::simple::SimpleHeader;
-    use transaction::MockTransaction;
+    use transaction::MockedExecutable;
     use primitives::StringSerializable;
 
     #[test]
     fn block_serialization_works() {
         let simple_block = SimpleBlock::new(
             SimpleHeader::new(),
-            vec![MockTransaction::new("this is a test".parse().unwrap())]
+            vec![MockedExecutable::new("this is a test".parse().unwrap())]
         );
 
         let s = simple_block.serialize();

@@ -1,10 +1,10 @@
 mod mocked;
-pub use mocked::{MockTransaction};
+pub use mocked::{MockedExecutable};
 use primitives::StringSerializable;
 
-pub trait Executable: StringSerializable {
+pub trait Executable: StringSerializable + Clone + Send {
     /// Checks if the executable is valid for execution
-    fn is_valid() -> bool;
+    fn is_valid(&self) -> bool;
     /// Execute the executable
-    fn execute() -> Result<(), ()>;
+    fn execute(&self) -> Result<(), ()>;
 }

@@ -2,7 +2,6 @@ use primitives::StringSerializable;
 pub use simple::{SimpleBlock, SimpleBlockId, SimpleHeader};
 
 mod simple;
-mod block_builder;
 
 pub trait Block: StringSerializable {
     type Header: Header;

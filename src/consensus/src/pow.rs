@@ -73,16 +73,16 @@ mod tests {
     use crate::pow::ProofOfWork;
     use crate::Consensus;
     use block::{SimpleBlock, Block, SimpleHeader, Header};
-    use transaction::MockTransaction;
+    use transaction::MockedExecutable;
 
     #[test]
     fn validate_works() {
         let simple_block = SimpleBlock::new(
             SimpleHeader::new(),
             vec![
-                MockTransaction::new("this is a test".parse().unwrap()),
-                MockTransaction::new("this is a test".parse().unwrap()),
-                MockTransaction::new("this is a test".parse().unwrap()),
+                MockedExecutable::new("this is a test".parse().unwrap()),
+                MockedExecutable::new("this is a test".parse().unwrap()),
+                MockedExecutable::new("this is a test".parse().unwrap()),
             ]
         );
 
