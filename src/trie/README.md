@@ -52,9 +52,9 @@ impl <'db, DB: HashDB> Trie<'db, DB> {
 }
 ```
 We would encounter an ownership problem in the above. This is different compared to other programming language.
-There are a few ways to handling this. One way is to use `node` itself and pass in the DB object for performing insertion. 
-But this way would make the interface look ugly. As a resolution, we need something to hold the ownership of the nodes. 
-This way is inspired by Parity's Trie implementation.
+There are a few ways to handling this. One way is to use `node` itself and pass in the DB object for performing insertion.
+Something like `node.insert(db, ...)`. But this way would make the interface look ugly.
+As a resolution, we need something to hold the ownership of the nodes. This way is inspired by Parity's Trie implementation.
 
 But there are other problems as well:
 ```rust
@@ -102,4 +102,4 @@ impl<'a, H: HashDB> Trie<'a, H> {
     }
 }
 ```
-In the end, use `Handler`.
+In the end, use `NodeLocation`. Maybe there are better ways to do this? Should come back and do it again.
