@@ -2,7 +2,6 @@
 name = "mini-blockchain"
 version = "0.1.0"
 authors = ["willesxm <willeslau@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-block = { path = "./src/block", version = "0.1.0"}

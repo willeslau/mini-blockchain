@@ -1,0 +1,17 @@
+[package]
+name = "trie"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["std"]
+std = ["common/std"]
+
+
+[dependencies]
+serde = "1.0.132"
+
+# internal crates
+kv-storage = { path = "../kv-storage" }
+common = { path = "../common", default = false }
