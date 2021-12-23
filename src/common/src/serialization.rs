@@ -1,5 +1,5 @@
 use bincode::Error;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum SerializationError {

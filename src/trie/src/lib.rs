@@ -4,11 +4,12 @@ mod node;
 mod storage;
 mod trie;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
+pub use trie::Trie;
+
+#[cfg(feature = "std")]
+mod rstd {
+    pub use std::{
+        borrow, boxed, cmp, collections::VecDeque, convert, error::Error, fmt, hash, iter, marker,
+        mem, ops, rc, result, vec,
+    };
 }

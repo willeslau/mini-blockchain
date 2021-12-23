@@ -13,8 +13,6 @@ func keybytesToHex(str []byte) []byte {
 }
  */
 
-use std::cmp::min;
-
 const TERMINAL: u8 = 16;
 
 pub(crate) fn prefix_len(a: &[u8], b: &[u8]) -> usize {
@@ -23,6 +21,7 @@ pub(crate) fn prefix_len(a: &[u8], b: &[u8]) -> usize {
         if a[i] != b[i] {
             break;
         }
+        i += 1;
     }
     i
 }

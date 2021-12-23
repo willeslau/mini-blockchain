@@ -1,50 +1,23 @@
-use common::{from_vec, to_vec, Hash};
+use crate::storage::NodeLocation;
+use common::{from_vec, to_vec};
 use serde::{Deserialize, Serialize};
 
-const CHILD_SIZE: usize = 17;
-type HashNode = Vec<u8>;
-type ValueNode = Vec<u8>;
-
-/// The node flags for extra configuration
-#[derive(Debug)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
-pub struct NodeFlag {
-    hash: Option<HashNode>,
-    dirty: bool,
-}
-
-impl NodeFlag {
-    pub fn new(dirty: bool) -> Self {
-        Self { hash: None, dirty }
-    }
-}
-
-/// CachedNode is all the information we know about a single cached trie node
-/// in the memory database write layer.
-pub struct CachedNode {
-    node: Node,
-    size: u32,
-    parents: u32,
-}
-
-impl CachedNode {}
+// The length of children is 17 because of the termination symbol
+pub(crate) const CHILD_SIZE: usize = 17;
 
 /// The Node in the MPT.
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum Node {
     Empty,
-    FullNode {
-        children: [Option<Box<Node>>; CHILD_SIZE],
-        flags: NodeFlag,
+    Branch {
+        children: Box<[NodeLocation; CHILD_SIZE]>,
     },
-    ShortNode {
-        key: Hash,
-        val: Box<Node>,
-        flags: NodeFlag,
+    Leaf {
+        key: Vec<u8>,
+        val: NodeLocation,
     },
-    HashNode(Vec<u8>),
-    ValueNode(Vec<u8>),
+    Value(Vec<u8>),
 }
 
 #[cfg(any(feature = "std"))]
