@@ -62,6 +62,18 @@ impl Cache {
         }
     }
 
+    /// Get the node at index
+    /// Note: this method could be dangerous as index might be a freed index.
+    pub fn get_node(&self, index: CacheIndex) -> Node {
+        match self.slots.get(index) {
+            None => Node::Empty,
+            Some(slot) => match slot {
+                MemorySlot::Updated(node) => node.clone(),
+                MemorySlot::Loaded(_, node) => node.clone()
+            }
+        }
+    }
+
     /// Get the mutable reference at index
     /// Note: this method could be dangerous as index might be a freed index.
     pub fn get_mut(&mut self, index: CacheIndex) -> &mut MemorySlot {

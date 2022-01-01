@@ -3,6 +3,7 @@ mod error;
 mod node;
 mod storage;
 mod trie;
+mod hasher;
 
 pub use trie::Trie;
 

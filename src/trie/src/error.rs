@@ -6,4 +6,6 @@ pub enum Error {
     ValueCannotBeEmpty,
     /// The node location passed is invalid
     InvalidNodeLocation,
+    /// The state of the trie is invalid
+    InvalidTrieState,
 }
