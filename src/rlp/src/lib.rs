@@ -2,15 +2,8 @@
 
 mod traits;
 mod rlp;
-mod error;
+mod impls;
 
-pub use crate::rlp::RPLStream;
+pub use crate::rlp::RLPStream;
+pub use crate::traits::{Encodable, Decodable};
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}

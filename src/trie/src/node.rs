@@ -1,9 +1,8 @@
-use crate::storage::NodeLocation;
-use common::{from_vec, Hash, Hasher, to_vec};
-use serde::{Deserialize, Serialize};
 use crate::encoding::hex_to_compact;
-use crate::rstd;
-use rlp::RPLStream;
+use crate::storage::NodeLocation;
+use common::{from_vec, to_vec, Hash, Hasher};
+use rlp::RLPStream;
+use serde::{Deserialize, Serialize};
 
 // The length of children is 17 because of the termination symbol
 pub(crate) const CHILD_SIZE: usize = 17;
@@ -11,7 +10,7 @@ pub(crate) const CHILD_SIZE: usize = 17;
 /// The Node in the MPT.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
-pub enum Node {
+pub(crate) enum Node {
     Empty,
     Full {
         children: Box<[NodeLocation; CHILD_SIZE]>,
@@ -20,7 +19,10 @@ pub enum Node {
         key: Vec<u8>,
         val: NodeLocation,
     },
-    Value(Vec<u8>),
+    Value {
+        key: Vec<u8>,
+        val: Vec<u8>
+    }
 }
 
 #[cfg(any(feature = "std"))]
@@ -39,48 +41,64 @@ impl From<Vec<u8>> for Node {
 
 impl Node {
     /// Encode node into
-    pub fn encode<H, F>(self, mut child_hf: F) -> Vec<u8>
-        where
-            H: Hasher,
-            F: FnMut(NodeLocation) -> ChildReference
+    /// * `ch` - The method that processes the child of the node
+    pub fn encode<'a, H, FM, FL>(self, mut ch: FM, mut node_locator: FL) -> Vec<u8>
+    where
+        H: Hasher,
+        FM: FnMut(NodeLocation) -> ChildReference,
+        FL: FnMut(NodeLocation) -> Node,
     {
         match self {
             // todo: handle empty node
-            Node::Empty => H::hash(&vec![]),
-            Node::Full { .. } => H::hash(&vec![]),
-            Node::Short { mut key, val: node_loc } => {
-                let nkey = hex_to_compact(&key);
-                let c_ref = child_hf(node_loc);
-
-                H::hash(&vec![])
+            Node::Empty => vec![],
+            Node::Full { .. } => vec![],
+            Node::Short {
+                mut key,
+                val: node_loc,
+            } => {
+                let child = node_locator(node_loc.clone());
+                if let Node::Value {key: _, val: nval} = child {
+                    Encoder::value_node(key, nval)
+                } else {
+                    Encoder::short_node(hex_to_compact(&key), ch(node_loc))
+                }
             },
-            Node::Value(_) => H::hash(&vec![]),
-        };
-        vec![]
+            Node::Value { key, val} => Encoder::value_node(hex_to_compact(&key), val),
+        }
+    }
+
+    pub fn update_key(&mut self, k: &[u8]) {
+        match self {
+            Node::Short { key, .. } => *key = k.clone().to_vec(),
+            Node::Value { key, .. } => *key = k.clone().to_vec(),
+            _ => {}
+        }
     }
 }
 
-pub enum ChildReference {
+/// This is a helper enum for hashing the nodes. During hashing of the nodes, i.e. Full node,
+/// we need to hash the children first. This would require us to have sth that holds the hash
+/// of the children. ChildReference is that sth.
+pub(crate) enum ChildReference {
     Hash(Hash),
-    Value(Vec<u8>)
+    Inline(Hash, usize)
 }
 
-struct HashCodec;
+/// The encoder used to convert node to bytes
+struct Encoder;
 
-impl HashCodec {
-    pub fn short_node(key: Vec<u8>, child_ref: ChildReference) -> ChildReference {
+impl Encoder {
+    pub fn short_node(key: Vec<u8>, child_ref: ChildReference) -> Vec<u8> {
         match child_ref {
-            ChildReference::Hash(hash) => {
+            ChildReference::Hash(hash) => vec![],
+            ChildReference::Inline(..) => { vec![] }
+        }
+    }
 
-            },
-            ChildReference::Value(val) => {
-                // RLP key, val
-                let mut rlp = RPLStream::new();
-                rlp.write_iter(key.into_iter());
-                rlp.write_iter(val.into_iter());
-            }
-        };
-
-        ChildReference::Hash([0;32])
+    pub fn value_node(key: Vec<u8>, val: Vec<u8>) -> Vec<u8> {
+        let mut rlp = RLPStream::new();
+        rlp.append(&key);
+        rlp.append(&val);
+        rlp.into()
     }
 }

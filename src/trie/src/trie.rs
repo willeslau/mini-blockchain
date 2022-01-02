@@ -1,11 +1,11 @@
-use std::collections::HashSet;
 use crate::encoding::{key_bytes_to_hex, prefix_len};
 use crate::error::Error;
-use crate::node::{Node, CHILD_SIZE, ChildReference};
+use crate::node::{ChildReference, Node, CHILD_SIZE};
 use crate::rstd::mem;
 use crate::storage::{Cache, CacheIndex, MemorySlot, NodeLocation};
 use common::{ensure, Hash, KeccakHasher};
 use kv_storage::HashDB;
+use std::collections::HashSet;
 
 type Prefix = Vec<u8>;
 
@@ -39,17 +39,17 @@ impl<'a, H: HashDB> Trie<'a, H> {
     }
 
     fn get_inner(&self, node_loc: &NodeLocation, key: &[u8], pos: usize) -> Option<Vec<u8>> {
-        if key.is_empty() { return None; }
+        if key.is_empty() {
+            return None;
+        }
 
         let node = match node_loc {
-            NodeLocation::Persistence(h) => {
-                match self.db.get(h) {
-                    None => Node::Empty,
-                    Some(bytes) => Node::from(bytes),
-                }
+            NodeLocation::Persistence(h) => match self.db.get(h) {
+                None => Node::Empty,
+                Some(bytes) => Node::from(bytes),
             },
             NodeLocation::Memory(cache_index) => self.cache.get_node(*cache_index),
-            NodeLocation::None => Node::Empty
+            NodeLocation::None => Node::Empty,
         };
 
         match node {
@@ -61,13 +61,14 @@ impl<'a, H: HashDB> Trie<'a, H> {
                 } else {
                     self.get_inner(&val, key, pos + matchlen)
                 }
-            },
-            Node::Full { children } => {
-                self.get_inner(&children[key[pos] as usize], key, pos + 1)
-            },
-            Node::Value(v) => {
-                if key.len() != pos { None }
-                else { Some(v) }
+            }
+            Node::Full { children } => self.get_inner(&children[key[pos] as usize], key, pos + 1),
+            Node::Value { key: _, val } => {
+                if key.len() != pos {
+                    None
+                } else {
+                    Some(val)
+                }
             }
         }
     }
@@ -90,9 +91,9 @@ impl<'a, H: HashDB> Trie<'a, H> {
         node_loc: NodeLocation,
         prefix: Prefix,
         key: Vec<u8>,
-        value: Vec<u8>,
+        val: Vec<u8>,
     ) -> Result<NodeLocation, Error> {
-        let val_node = Node::Value(value);
+        let val_node = Node::Value { key: key.clone(), val };
         let val_loc = NodeLocation::Memory(self.cache.insert(MemorySlot::Updated(val_node)));
         self.insert_inner(node_loc, prefix, key, val_loc)
     }
@@ -113,6 +114,20 @@ impl<'a, H: HashDB> Trie<'a, H> {
         };
 
         Ok((cache_index, node))
+    }
+
+    fn take_node_loc(&mut self, node_loc: NodeLocation) -> Node {
+        if matches!(node_loc, NodeLocation::None) { return Node::Empty; }
+
+        let cache_index = match node_loc {
+            NodeLocation::Persistence(h) => self.load_to_cache(&h),
+            NodeLocation::Memory(i) => i,
+            _ => panic!("invalid node location")
+        };
+        match self.cache.take(cache_index) {
+            MemorySlot::Updated(node) => node,
+            MemorySlot::Loaded(_, node) => node,
+        }
     }
 
     fn destroy(&mut self, node_loc: NodeLocation) -> Result<(), Error> {
@@ -162,7 +177,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
             }
             Node::Short {
                 key: nkey,
-                val: nval
+                val: nval,
             } => {
                 let matchlen = prefix_len(nkey, &key);
 
@@ -235,31 +250,19 @@ impl<'a, H: HashDB> Trie<'a, H> {
     fn commit_child(&mut self, node_loc: NodeLocation) -> ChildReference {
         match node_loc {
             // The root is still in persistence or not exists, nothing to do.
-            NodeLocation::Persistence(_) | NodeLocation::None => ChildReference::Hash(Hash::default()),
+            NodeLocation::Persistence(_) | NodeLocation::None => {
+                ChildReference::Hash(Hash::default())
+            }
             NodeLocation::Memory(x) => {
                 match self.cache.take(x) {
                     MemorySlot::Updated(node) => {
-                        node.encode::<KeccakHasher, _>(|node_loc| self.commit_child(node_loc));
                         ChildReference::Hash(Hash::default())
-                        // match node {
-                        //     Node::Empty => Err(Error::InvalidTrieState),
-                        //     Node::Full { children } => {
-                        //         for c in children.to_vec() {
-                        //             self.commit_child(c)?;
-                        //         }
-                        //         Ok(Hash::default())
-                        //     }
-                        //     Node::Short { key, val } => {
-                        //         Ok(Hash::default())
-                        //     }
-                        //     Node::Value(_) => { Ok(Hash::default()) }
-                        // }
-                    },
+                    }
                     // If the slot is just loaded from DB and not updated,
                     // we should not have the need to process it again.
-                    MemorySlot::Loaded(h, _) => ChildReference::Hash(h)
+                    MemorySlot::Loaded(h, _) => ChildReference::Hash(h),
                 }
-            },
+            }
         }
     }
 
@@ -284,9 +287,9 @@ impl<'a, H: HashDB> Trie<'a, H> {
 
 #[cfg(test)]
 mod tests {
+    use crate::storage::NodeLocation;
     use crate::trie::Trie;
     use kv_storage::MemoryDB;
-    use crate::storage::NodeLocation;
 
     #[test]
     fn root_handle() {

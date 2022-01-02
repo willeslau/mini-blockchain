@@ -19,7 +19,7 @@ pub enum NodeLocation {
 }
 
 /// The memory slot type for nodes stored in memory
-pub enum MemorySlot {
+pub(crate) enum MemorySlot {
     /// The memory slot is updated, we need to flush it
     Updated(Node),
     /// Memory slot is just loaded from persistence, no changes made
@@ -37,7 +37,7 @@ impl MemorySlot {
 }
 
 /// In memory storage location for nodes
-pub struct Cache {
+pub(crate) struct Cache {
     /// Data and references relationships of dirty trie nodes
     slots: Vec<MemorySlot>,
     /// Free index
@@ -69,8 +69,8 @@ impl Cache {
             None => Node::Empty,
             Some(slot) => match slot {
                 MemorySlot::Updated(node) => node.clone(),
-                MemorySlot::Loaded(_, node) => node.clone()
-            }
+                MemorySlot::Loaded(_, node) => node.clone(),
+            },
         }
     }
 

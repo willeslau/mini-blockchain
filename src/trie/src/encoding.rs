@@ -25,20 +25,20 @@ pub(crate) fn key_bytes_to_hex(key: &[u8]) -> Vec<u8> {
 
 /*
 func hexToCompact(hex []byte) []byte {
-	terminator := byte(0)
-	if hasTerm(hex) {
-		terminator = 1
-		hex = hex[:len(hex)-1]
-	}
-	buf := make([]byte, len(hex)/2+1)
-	buf[0] = terminator << 5 // the flag byte
-	if len(hex)&1 == 1 {
-		buf[0] |= 1 << 4 // odd flag
-		buf[0] |= hex[0] // first nibble is contained in the first byte
-		hex = hex[1:]
-	}
-	decodeNibbles(hex, buf[1:])
-	return buf
+    terminator := byte(0)
+    if hasTerm(hex) {
+        terminator = 1
+        hex = hex[:len(hex)-1]
+    }
+    buf := make([]byte, len(hex)/2+1)
+    buf[0] = terminator << 5 // the flag byte
+    if len(hex)&1 == 1 {
+        buf[0] |= 1 << 4 // odd flag
+        buf[0] |= hex[0] // first nibble is contained in the first byte
+        hex = hex[1:]
+    }
+    decodeNibbles(hex, buf[1:])
+    return buf
 }
  */
 pub fn hex_to_compact(hex: &[u8]) -> Vec<u8> {
@@ -48,7 +48,7 @@ pub fn hex_to_compact(hex: &[u8]) -> Vec<u8> {
         terminator = 1;
         hi -= 1;
     }
-    let mut buf = Vec::with_capacity(hi/2 + 1);
+    let mut buf = Vec::with_capacity(hi / 2 + 1);
     // why push terminator << 5?
     buf.push(terminator << 5);
     if hi & 1 == 1 {
@@ -62,21 +62,21 @@ pub fn hex_to_compact(hex: &[u8]) -> Vec<u8> {
 
 /*
 func decodeNibbles(nibbles []byte, bytes []byte) {
-	for bi, ni := 0, 0; ni < len(nibbles); bi, ni = bi+1, ni+2 {
-		bytes[bi] = nibbles[ni]<<4 | nibbles[ni+1]
-	}
+    for bi, ni := 0, 0; ni < len(nibbles); bi, ni = bi+1, ni+2 {
+        bytes[bi] = nibbles[ni]<<4 | nibbles[ni+1]
+    }
 }
  */
 pub fn decode_nibbles(nibbles: &[u8], lo: usize, hi: usize, bytes: &mut Vec<u8>) {
     let mut ni = lo;
     while ni < hi {
-        bytes.push(nibbles[ni] << BITS_PER_NIBBLE | nibbles[ni+1]);
+        bytes.push(nibbles[ni] << BITS_PER_NIBBLE | nibbles[ni + 1]);
         ni += 2;
     }
 }
 
 fn has_term(hex: &[u8]) -> bool {
-    hex.len() > 0 && hex[hex.len()-1] == TERMINAL
+    hex.len() > 0 && hex[hex.len() - 1] == TERMINAL
 }
 
 #[cfg(test)]
@@ -96,18 +96,18 @@ mod tests {
     fn test_hex_to_compact() {
         /*
         {hex: []byte{}, compact: []byte{0x00}},
-		{hex: []byte{16}, compact: []byte{0x20}},
-		// odd length, no terminator
-		{hex: []byte{1, 2, 3, 4, 5}, compact: []byte{0x11, 0x23, 0x45}},
-		// even length, no terminator
-		{hex: []byte{0, 1, 2, 3, 4, 5}, compact: []byte{0x00, 0x01, 0x23, 0x45}},
-		// odd length, terminator
-		{hex: []byte{15, 1, 12, 11, 8, 16 /*term*/}, compact: []byte{0x3f, 0x1c, 0xb8}},
-		// even length, terminator
-		{hex: []byte{0, 15, 1, 12, 11, 8, 16 /*term*/}, compact: []byte{0x20, 0x0f, 0x1c, 0xb8}},
+        {hex: []byte{16}, compact: []byte{0x20}},
+        // odd length, no terminator
+        {hex: []byte{1, 2, 3, 4, 5}, compact: []byte{0x11, 0x23, 0x45}},
+        // even length, no terminator
+        {hex: []byte{0, 1, 2, 3, 4, 5}, compact: []byte{0x00, 0x01, 0x23, 0x45}},
+        // odd length, terminator
+        {hex: []byte{15, 1, 12, 11, 8, 16 /*term*/}, compact: []byte{0x3f, 0x1c, 0xb8}},
+        // even length, terminator
+        {hex: []byte{0, 15, 1, 12, 11, 8, 16 /*term*/}, compact: []byte{0x20, 0x0f, 0x1c, 0xb8}},
          */
         assert_eq!(hex_to_compact(&[]), vec![0x00]);
         assert_eq!(hex_to_compact(&[16]), vec![0x20]);
-        assert_eq!(hex_to_compact(&[1,2,3,4,5]), vec![0x11, 0x23, 0x45]);
+        assert_eq!(hex_to_compact(&[1, 2, 3, 4, 5]), vec![0x11, 0x23, 0x45]);
     }
 }
