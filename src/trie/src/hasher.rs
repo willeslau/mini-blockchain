@@ -1,88 +1,160 @@
+use crate::encoding::hex_to_compact;
+use crate::node::{Node, CHILD_SIZE};
+use crate::storage::{Cache, MemorySlot, NodeLocation};
 use common::{Hash, Hasher, KeccakHasher};
 use kv_storage::HashDB;
-use rlp::{Encodable, RLPStream};
-use crate::encoding::hex_to_compact;
-use crate::node::{CHILD_SIZE, Node};
-use crate::storage::{Cache, NodeLocation};
+use rlp::RLPStream;
 
-pub(crate) struct NodeHasher<'a, H: HashDB> {
-    db: &'a mut H,
-    cache: Cache,
+pub(crate) struct NodeHasher {
     hash_count: usize,
 }
 
-impl<'a, H: HashDB> NodeHasher<'a, H> {
-    pub fn hash<F>(&mut self, node: Node, mut locator: F) -> ChildReference where F: FnMut(NodeLocation) -> Node {
+impl NodeHasher {
+    pub fn new() -> Self {
+        Self { hash_count: 0 }
+    }
+
+    pub fn hash<H: HashDB>(&mut self, node: Node, db: &mut H, cache: &mut Cache) -> Hash {
+        match self.hash_inner(node, db, cache) {
+            ChildReference::Hash(h) => h,
+            ChildReference::Inline(v) => self.insert_db_raw(v, db),
+            _ => panic!("invalid state"),
+        }
+    }
+
+    pub fn hash_inner<H: HashDB>(
+        &mut self,
+        node: Node,
+        db: &mut H,
+        cache: &mut Cache,
+    ) -> ChildReference {
         match node {
             // TODO: add empty node hash
-            Node::Empty => { ChildReference::Hash(Hash::default()) }
-            Node::Full { children } => { ChildReference::Hash(Hash::default()) }
-            Node::Short {
-                mut key,
-                val: node_loc,
-            } => self.hash_short_node_children(key, locator(node_loc), locator),
+            Node::Empty => ChildReference::Hash(Hash::default()),
+            Node::Full { children } => self.hash_full_node_children(children, db, cache),
+            Node::Short { key, val: node_loc } => {
+                let nd = self.take_node_loc(node_loc, cache);
+                self.hash_short_node_children(key, db, nd, cache)
+            }
             // Should not process this type as Short node branch should have handled it.
             // Well, this might not be the best way to do this. The issue here is the key
             // to the value node is not stored, hence we need to get the key from Short node.
-            Node::Value { .. } => panic!("invalid state"),
-        };
-        ChildReference::Hash(Hash::default())
+            _ => panic!("invalid state"),
+        }
     }
 
-    fn hash_short_node_children<F>(&mut self, key: Vec<u8>, node: Node, mut locator: F) -> ChildReference where F: FnMut(NodeLocation) -> Node {
-        let encoded = if let Node::Value { key: _, val: nval } = node {
-            Encoder::value_node(key, nval)
-        } else {
-            Encoder::short_node(key, self.hash(node, locator))
-        };
-        self.process_encoded(encoded)
+    fn take_node_loc(&mut self, node_loc: NodeLocation, cache: &mut Cache) -> NodeData {
+        match node_loc {
+            NodeLocation::Persistence(h) => NodeData::Hash(h),
+            NodeLocation::Memory(i) => match cache.take(i) {
+                MemorySlot::Updated(node) => NodeData::Node(node),
+                MemorySlot::Loaded(h, _) => NodeData::Hash(h),
+            },
+            NodeLocation::None => NodeData::Node(Node::Empty),
+        }
     }
 
-    // fn hash_full_node_children<F>(&mut self, mut children: Box<[NodeLocation; CHILD_SIZE]>, locator: F) -> ChildReference where F: FnMut(NodeLocation) -> Node {
-    //     let refs = children
-    //         .iter_mut()
-    //         .map(Option::take)
-    //         .map(|c| {
-    //         let node = locator(c);
-    //         match node {
-    //             Node::Empty => None,
-    //             _ => Some(self.hash(node, locator))
-    //         }
-    //     });
-    //     self.process_encoded(Encoder::full_node(Box::new(refs)))
-    // }
+    fn hash_short_node_children<H: HashDB>(
+        &mut self,
+        key: Vec<u8>,
+        db: &mut H,
+        nd: NodeData,
+        cache: &mut Cache,
+    ) -> ChildReference {
+        let k = hex_to_compact(&key);
+        let encoded = match nd {
+            NodeData::Hash(h) => Encoder::short_node(k, ChildReference::Hash(h)),
+            NodeData::Node(node) => {
+                if let Node::Value(val) = node {
+                    Encoder::value_node(k, val)
+                } else {
+                    Encoder::short_node(k, self.hash_inner(node, db, cache))
+                }
+            }
+        };
+        self.insert_encoded(encoded, db)
+    }
 
-    fn process_encoded(&mut self, encoded: Vec<u8>) -> ChildReference {
+    fn hash_full_node_children<H: HashDB>(
+        &mut self,
+        children: Box<[NodeLocation; CHILD_SIZE]>,
+        db: &mut H,
+        cache: &mut Cache,
+    ) -> ChildReference {
+        let mut refs = Vec::with_capacity(CHILD_SIZE);
+        for i in 0..CHILD_SIZE - 1 {
+            let c = children[i];
+            match self.take_node_loc(c, cache) {
+                NodeData::Hash(h) => refs.push(Some(ChildReference::Hash(h))),
+                NodeData::Node(node) => match node {
+                    Node::Empty => refs.push(None),
+                    _ => {
+                        refs.push(Some(self.hash_inner(node, db, cache)));
+                    }
+                },
+            }
+        }
+
+        // process the 17th element, the terminal
+        let tm = children[CHILD_SIZE - 1];
+        match self.take_node_loc(tm, cache) {
+            NodeData::Hash(h) => refs.push(Some(ChildReference::Hash(h))),
+            NodeData::Node(node) => match node {
+                Node::Empty => refs.push(None),
+                Node::Value(v) => refs.push(Some(ChildReference::Value(v))),
+                _ => panic!("invalid state"),
+            },
+        }
+        self.insert_encoded(Encoder::full_node(refs), db)
+    }
+
+    /// Hash the encoded node or keep the raw data if len is short
+    fn insert_encoded<H: HashDB>(&mut self, encoded: Vec<u8>, db: &mut H) -> ChildReference {
         if encoded.len() >= KeccakHasher::LENGTH {
-            let hash = KeccakHasher::hash(&encoded);
-            self.db.insert(Vec::from(hash.clone()), encoded);
-            self.hash_count += 1;
-            ChildReference::Hash(hash)
+            ChildReference::Hash(self.insert_db_raw(encoded, db))
         } else {
             ChildReference::Inline(encoded)
         }
     }
+
+    fn insert_db_raw<H: HashDB>(&mut self, encoded: Vec<u8>, db: &mut H) -> Hash {
+        let hash = KeccakHasher::hash(&encoded);
+        db.insert(Vec::from(hash), encoded);
+        self.hash_count += 1;
+        hash
+    }
+}
+
+pub(crate) enum NodeData {
+    Hash(Hash),
+    Node(Node),
 }
 
 /// This is a helper enum for hashing the nodes. During hashing of the nodes, i.e. Full node,
 /// we need to hash the children first. This would require us to have sth that holds the hash
 /// of the children. ChildReference is that sth.
+#[derive(Debug, Clone)]
 pub(crate) enum ChildReference {
     Hash(Hash),
     Inline(Vec<u8>),
+    Value(Vec<u8>),
 }
 
 /// The encoder used to convert node to bytes
 struct Encoder;
 
 impl Encoder {
-    pub fn full_node(children: Box<[Option<ChildReference>; CHILD_SIZE]>) -> Vec<u8> {
+    pub fn full_node(children: Vec<Option<ChildReference>>) -> Vec<u8> {
         let mut stream = RLPStream::new_list(CHILD_SIZE);
-        for c in children.iter() {
+        for c in children {
             match c {
-                None => stream.append_empty(),
-                Some(r) => Self::handle_ref(&mut stream, r)
-            }
+                None => {
+                    stream.append_empty();
+                }
+                Some(r) => {
+                    Self::handle_ref(&mut stream, r);
+                }
+            };
         }
         stream.into()
     }
@@ -104,7 +176,8 @@ impl Encoder {
     fn handle_ref(stream: &mut RLPStream, child_ref: ChildReference) {
         match child_ref {
             ChildReference::Hash(h) => stream.append(&h),
-            ChildReference::Inline(inline_data) => stream.append(&inline_data)
+            ChildReference::Inline(inline_data) => stream.append_raw(&inline_data),
+            ChildReference::Value(v) => stream.append(&v),
         };
     }
 }

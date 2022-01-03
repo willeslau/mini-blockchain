@@ -1,9 +1,9 @@
 mod encoding;
 mod error;
+mod hasher;
 mod node;
 mod storage;
 mod trie;
-mod hasher;
 
 pub use trie::Trie;
 

@@ -26,16 +26,6 @@ pub(crate) enum MemorySlot {
     Loaded(Hash, Node),
 }
 
-impl MemorySlot {
-    pub fn into_updated(self) -> Self {
-        let n = match self {
-            MemorySlot::Updated(n) => n,
-            MemorySlot::Loaded(_, n) => n,
-        };
-        MemorySlot::Updated(n)
-    }
-}
-
 /// In memory storage location for nodes
 pub(crate) struct Cache {
     /// Data and references relationships of dirty trie nodes
@@ -72,12 +62,6 @@ impl Cache {
                 MemorySlot::Loaded(_, node) => node.clone(),
             },
         }
-    }
-
-    /// Get the mutable reference at index
-    /// Note: this method could be dangerous as index might be a freed index.
-    pub fn get_mut(&mut self, index: CacheIndex) -> &mut MemorySlot {
-        self.slots.get_mut(index).unwrap()
     }
 
     pub fn replace(&mut self, index: CacheIndex, storage_slot: MemorySlot) {

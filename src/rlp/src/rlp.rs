@@ -102,6 +102,12 @@ impl RLPStream {
         self
     }
 
+    pub fn append_raw(&mut self, raw: &[u8]) -> &mut Self {
+        self.data.extend_from_slice(raw);
+        self.list_appended(1);
+        self
+    }
+
     /// Write iterator into the stream. Should be invoked only by Encodable
     pub fn write_iter<I: Iterator<Item=u8>>(&mut self, mut iter: I) {
         let len = match iter.size_hint() {

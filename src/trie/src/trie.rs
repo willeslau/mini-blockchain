@@ -1,9 +1,9 @@
 use crate::encoding::{key_bytes_to_hex, prefix_len};
 use crate::error::Error;
-use crate::node::{ChildReference, Node, CHILD_SIZE};
-use crate::rstd::mem;
+use crate::hasher::NodeHasher;
+use crate::node::{Node, CHILD_SIZE};
 use crate::storage::{Cache, CacheIndex, MemorySlot, NodeLocation};
-use common::{ensure, Hash, KeccakHasher};
+use common::{ensure, Hash};
 use kv_storage::HashDB;
 use std::collections::HashSet;
 
@@ -15,6 +15,7 @@ pub struct Trie<'a, H: HashDB> {
     cache: Cache,
     delete_items: HashSet<Node>,
     unhashed: u32,
+    node_hasher: NodeHasher,
 }
 
 impl<'a, H: HashDB> Trie<'a, H> {
@@ -26,6 +27,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
             cache: Cache::new(),
             delete_items: Default::default(),
             unhashed: 0,
+            node_hasher: NodeHasher::new(),
         }
     }
 
@@ -63,7 +65,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
                 }
             }
             Node::Full { children } => self.get_inner(&children[key[pos] as usize], key, pos + 1),
-            Node::Value { key: _, val } => {
+            Node::Value(val) => {
                 if key.len() != pos {
                     None
                 } else {
@@ -74,7 +76,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
     }
 
     /// Try to update the key with provided value
-    pub fn try_update(&mut self, key: &[u8], val: Vec<u8>) -> Result<(), Error> {
+    pub fn try_update(&mut self, key: &[u8], val: &[u8]) -> Result<(), Error> {
         ensure!(!key.is_empty(), Error::KeyCannotBeEmpty)?;
         ensure!(!val.is_empty(), Error::ValueCannotBeEmpty)?;
 
@@ -82,7 +84,11 @@ impl<'a, H: HashDB> Trie<'a, H> {
         let k = key_bytes_to_hex(key);
         let root = self.root_loc();
         let prefix = Prefix::default();
-        self.root_loc = self.insert(root, prefix, k, val)?;
+        self.root_loc = self.insert(root, prefix, k, Vec::from(val))?;
+        Ok(())
+    }
+
+    pub fn try_delete(&mut self, key: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 
@@ -93,12 +99,12 @@ impl<'a, H: HashDB> Trie<'a, H> {
         key: Vec<u8>,
         val: Vec<u8>,
     ) -> Result<NodeLocation, Error> {
-        let val_node = Node::Value { key: key.clone(), val };
+        let val_node = Node::Value(val);
         let val_loc = NodeLocation::Memory(self.cache.insert(MemorySlot::Updated(val_node)));
         self.insert_inner(node_loc, prefix, key, val_loc)
     }
 
-    fn parse_node_loc(&mut self, node_loc: NodeLocation) -> Result<(CacheIndex, &mut Node), Error> {
+    fn take_node_loc(&mut self, node_loc: NodeLocation) -> Result<(CacheIndex, Node), Error> {
         let cache_index = match node_loc {
             NodeLocation::Persistence(h) => self.load_to_cache(&h),
             NodeLocation::Memory(i) => i,
@@ -108,7 +114,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
         };
 
         // Always fetch the node from cache
-        let node = match self.cache.get_mut(cache_index) {
+        let node = match self.cache.take(cache_index) {
             MemorySlot::Updated(node) => node,
             MemorySlot::Loaded(_, node) => node,
         };
@@ -116,26 +122,12 @@ impl<'a, H: HashDB> Trie<'a, H> {
         Ok((cache_index, node))
     }
 
-    fn take_node_loc(&mut self, node_loc: NodeLocation) -> Node {
-        if matches!(node_loc, NodeLocation::None) { return Node::Empty; }
-
-        let cache_index = match node_loc {
-            NodeLocation::Persistence(h) => self.load_to_cache(&h),
-            NodeLocation::Memory(i) => i,
-            _ => panic!("invalid node location")
-        };
-        match self.cache.take(cache_index) {
-            MemorySlot::Updated(node) => node,
-            MemorySlot::Loaded(_, node) => node,
-        }
-    }
-
-    fn destroy(&mut self, node_loc: NodeLocation) -> Result<(), Error> {
+    fn destroy(&mut self, node_loc: &NodeLocation) -> Result<(), Error> {
         match node_loc {
             NodeLocation::None => Ok(()),
             NodeLocation::Persistence(_) => Err(Error::InvalidNodeLocation),
             NodeLocation::Memory(cache_index) => {
-                match self.cache.take(cache_index) {
+                match self.cache.take(*cache_index) {
                     // since it's still in memory, no need to do anything
                     MemorySlot::Updated(n) => self.delete_items.insert(n),
                     MemorySlot::Loaded(_, n) => self.delete_items.insert(n),
@@ -164,37 +156,36 @@ impl<'a, H: HashDB> Trie<'a, H> {
 
         // All these round trips because of not familiar with
         // rust... See readme of this module.
-        let (cache_index, node) = self.parse_node_loc(node_loc)?;
+        let (cache_index, node) = self.take_node_loc(node_loc)?;
 
-        // require key not empty, maybe this case needs to be handled
-        ensure!(!key.is_empty(), Error::KeyCannotBeEmpty)?;
+        if key.is_empty() { return Ok(value); }
 
         match node {
             Node::Empty => {
                 let n = Node::Short { key, val: value };
                 self.cache.replace(cache_index, MemorySlot::Updated(n));
-                return Ok(NodeLocation::Memory(cache_index));
+                Ok(NodeLocation::Memory(cache_index))
             }
             Node::Short {
                 key: nkey,
                 val: nval,
             } => {
-                let matchlen = prefix_len(nkey, &key);
+                let matchlen = prefix_len(&nkey, &key);
 
                 // This means the two keys match exactly
                 if matchlen == nkey.len() {
                     // TODO: are these 2 steps necessary?
                     // update the prefix to include the matched key
                     prefix.append(&mut (key[..matchlen].to_vec()));
-                    *nkey = prefix;
 
-                    // Replace and delete old value
-                    let v = mem::replace(nval, value);
-                    self.destroy(v)?;
+                    // update the child with a new value
+                    let new = self.insert_inner(nval, prefix, key[matchlen..].to_vec(), value)?;
 
                     // now we update the slot
-                    let slot = self.cache.take(cache_index);
-                    let idx = self.cache.insert(slot.into_updated());
+                    let idx = self.cache.insert(MemorySlot::Updated(Node::Short {
+                        key: nkey,
+                        val: new,
+                    }));
                     return Ok(NodeLocation::Memory(idx));
                 }
 
@@ -208,7 +199,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
                 let k2 = nkey[matchlen + 1..].to_vec();
 
                 // A trick to avoid borrow mutable
-                let nv = mem::replace(nval, NodeLocation::None);
+                let nv = nval;
                 let nk = nkey[..matchlen].to_vec();
 
                 // One more index of matchlen because the branch node will consume one position.
@@ -227,43 +218,47 @@ impl<'a, H: HashDB> Trie<'a, H> {
                 };
                 let idx = self.cache.insert(MemorySlot::Updated(branch));
 
-                self.cache.take(cache_index);
-                let idx = self.cache.insert(MemorySlot::Updated(Node::Short {
-                    key: nk,
-                    val: NodeLocation::Memory(idx),
-                }));
-                return Ok(NodeLocation::Memory(idx));
+                if matchlen == 0 {
+                    Ok(NodeLocation::Memory(idx))
+                } else {
+                    let idx = self.cache.insert(MemorySlot::Updated(Node::Short {
+                        key: nk,
+                        val: NodeLocation::Memory(idx),
+                    }));
+                    Ok(NodeLocation::Memory(idx))
+                }
             }
-            _ => {}
+            Node::Full { children: mut ch } => {
+                prefix.push(key[0]);
+                let i = key[0] as usize;
+                ch[i] = self.insert_inner(ch[i], prefix, key[1..].to_vec(), value)?;
+                let branch = Node::Full { children: ch };
+                let idx = self.cache.insert(MemorySlot::Updated(branch));
+                Ok(NodeLocation::Memory(idx))
+            }
+            _ => panic!("not implemented"),
         }
-        Ok(NodeLocation::None)
     }
 
     /// Commit cached node changes to underlying database. Update trie hash as well.
     pub fn commit(&mut self) -> Result<Hash, Error> {
         // TODO: remove items in self.delete_items in db
         let node_loc = self.root_loc();
-        self.commit_child(node_loc);
-        Ok(Hash::default())
-    }
-
-    fn commit_child(&mut self, node_loc: NodeLocation) -> ChildReference {
-        match node_loc {
-            // The root is still in persistence or not exists, nothing to do.
-            NodeLocation::Persistence(_) | NodeLocation::None => {
-                ChildReference::Hash(Hash::default())
-            }
+        let h = match node_loc {
+            NodeLocation::None => Hash::default(),
+            NodeLocation::Persistence(h) => h,
             NodeLocation::Memory(x) => {
                 match self.cache.take(x) {
                     MemorySlot::Updated(node) => {
-                        ChildReference::Hash(Hash::default())
+                        self.node_hasher.hash(node, self.db, &mut self.cache)
                     }
                     // If the slot is just loaded from DB and not updated,
                     // we should not have the need to process it again.
-                    MemorySlot::Loaded(h, _) => ChildReference::Hash(h),
+                    MemorySlot::Loaded(h, _) => h,
                 }
             }
-        }
+        };
+        Ok(h)
     }
 
     fn load_to_cache(&mut self, h: &Hash) -> CacheIndex {
@@ -304,14 +299,33 @@ mod tests {
         let mut hash_db = MemoryDB::new();
         let mut trie = Trie::new(&mut hash_db);
 
-        trie.try_update(&vec![1, 2, 3], vec![2]).unwrap();
+        trie.try_update(&vec![1, 2, 3], &[2]).unwrap();
         assert_eq!(trie.get(&vec![1, 2, 3]), Some(vec![2]));
 
-        trie.try_update(&vec![1, 2, 3], vec![3]).unwrap();
+        trie.try_update(&vec![1, 2, 3], &[3]).unwrap();
         assert_eq!(trie.get(&vec![1, 2, 3]), Some(vec![3]));
 
-        trie.try_update(&vec![1, 2, 3, 4], vec![3]).unwrap();
+        trie.try_update(&vec![1, 2, 3, 4], &[3]).unwrap();
         assert_eq!(trie.get(&vec![1, 2, 3]), Some(vec![3]));
         assert_eq!(trie.get(&vec![1, 2, 3, 4]), Some(vec![3]));
+    }
+
+    #[test]
+    fn commit_works() {
+        let mut hash_db = MemoryDB::new();
+        let mut trie = Trie::new(&mut hash_db);
+
+        trie.try_update(b"foo", b"bar").unwrap();
+        trie.try_update(b"fook", b"barr").unwrap();
+        trie.try_update(b"fooo", b"bar").unwrap();
+        let out = trie.commit().unwrap();
+        assert_eq!(
+            out,
+            [
+                0x65, 0x5a, 0x75, 0x4, 0xda, 0x98, 0xaa, 0xca, 0x39, 0xf2, 0x38, 0x85, 0xb2, 0xb2,
+                0x32, 0xd4, 0xa4, 0x95, 0x31, 0x5d, 0x63, 0x87, 0x38, 0xcd, 0x6e, 0xa0, 0x84, 0xa9,
+                0x26, 0xf3, 0xa3, 0x7
+            ]
+        );
     }
 }

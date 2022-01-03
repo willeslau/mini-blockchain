@@ -76,7 +76,7 @@ pub fn decode_nibbles(nibbles: &[u8], lo: usize, hi: usize, bytes: &mut Vec<u8>)
 }
 
 fn has_term(hex: &[u8]) -> bool {
-    hex.len() > 0 && hex[hex.len() - 1] == TERMINAL
+    !hex.is_empty() && hex[hex.len() - 1] == TERMINAL
 }
 
 #[cfg(test)]
