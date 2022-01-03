@@ -83,7 +83,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
         self.root_loc = self.insert(
             self.root_loc(),
             Prefix::default(),
-            key_bytes_to_hex(key),
+            &*key_bytes_to_hex(key),
             Vec::from(val),
         )?;
 
@@ -113,7 +113,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
         &mut self,
         node_loc: NodeLocation,
         prefix: Prefix,
-        key: Vec<u8>,
+        key: &[u8],
         val: Vec<u8>,
     ) -> Result<NodeLocation, Error> {
         let val_node = Node::Value(val);
@@ -143,7 +143,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
         &mut self,
         node_loc: NodeLocation,
         mut prefix: Prefix,
-        key: Vec<u8>,
+        key: &[u8],
         value: NodeLocation,
     ) -> Result<NodeLocation, Error> {
         if matches!(node_loc, NodeLocation::None) {
@@ -152,7 +152,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
             }
             let idx = self
                 .cache
-                .insert(MemorySlot::Updated(Node::Short { key, val: value }));
+                .insert(MemorySlot::Updated(Node::Short { key: Vec::from(key), val: value }));
             return Ok(NodeLocation::Memory(idx));
         }
 
@@ -166,7 +166,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
 
         match node {
             Node::Empty => {
-                let n = Node::Short { key, val: value };
+                let n = Node::Short { key: Vec::from(key), val: value };
                 self.cache.replace(cache_index, MemorySlot::Updated(n));
                 Ok(NodeLocation::Memory(cache_index))
             }
@@ -183,7 +183,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
                     prefix.append(&mut (key[..matchlen].to_vec()));
 
                     // update the child with a new value
-                    let new = self.insert_inner(nval, prefix, key[matchlen..].to_vec(), value)?;
+                    let new = self.insert_inner(nval, prefix, &key[matchlen..], value)?;
 
                     // now we update the slot
                     let idx = self.cache.insert(MemorySlot::Updated(Node::Short {
@@ -203,29 +203,18 @@ impl<'a, H: HashDB> Trie<'a, H> {
                 // So the prefix is effectively extended to [..matchlen+1]
                 nprefix.append(&mut (nkey[..matchlen + 1]).to_vec());
                 prefix.append(&mut (key[..matchlen + 1].to_vec()));
-                let k1 = key[matchlen + 1..].to_vec();
-                let k2 = nkey[matchlen + 1..].to_vec();
 
-                // A trick to avoid borrow mutable
-                let nv = nval;
-                let nk = nkey[..matchlen].to_vec();
+                children[c1] = self.insert_inner(NodeLocation::None, prefix, &key[matchlen + 1..], value)?;
+                children[c2] = self.insert_inner(NodeLocation::None, nprefix, &nkey[matchlen + 1..], nval)?;
 
-                let n1 = self.insert_inner(NodeLocation::None, prefix, k1, value)?;
-                let n2 = self.insert_inner(NodeLocation::None, nprefix, k2, nv)?;
-
-                children[c1] = n1;
-                children[c2] = n2;
-
-                let branch = Node::Full {
-                    children: Box::new(children),
-                };
+                let branch = Node::Full { children: Box::new(children) };
                 let idx = self.cache.insert(MemorySlot::Updated(branch));
 
                 if matchlen == 0 {
                     Ok(NodeLocation::Memory(idx))
                 } else {
                     let idx = self.cache.insert(MemorySlot::Updated(Node::Short {
-                        key: nk,
+                        key: nkey[..matchlen].to_vec(),
                         val: NodeLocation::Memory(idx),
                     }));
                     Ok(NodeLocation::Memory(idx))
@@ -233,11 +222,12 @@ impl<'a, H: HashDB> Trie<'a, H> {
             }
             Node::Full { children: mut ch } => {
                 prefix.push(key[0]);
+
                 let i = key[0] as usize;
-                ch[i] = self.insert_inner(ch[i], prefix, key[1..].to_vec(), value)?;
+                ch[i] = self.insert_inner(ch[i], prefix, &key[1..], value)?;
+
                 let branch = Node::Full { children: ch };
-                let idx = self.cache.insert(MemorySlot::Updated(branch));
-                Ok(NodeLocation::Memory(idx))
+                Ok(NodeLocation::Memory(self.cache.insert(MemorySlot::Updated(branch))))
             }
             _ => panic!("not implemented"),
         }
