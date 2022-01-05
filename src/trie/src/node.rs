@@ -1,9 +1,18 @@
 use crate::storage::NodeLocation;
-use common::{from_vec, to_vec};
+use common::{from_vec, Hash, to_vec};
 use serde::{Deserialize, Serialize};
 
 // The length of children is 17 because of the termination symbol
 pub(crate) const CHILD_SIZE: usize = 17;
+
+/// The item to delete
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub(crate) enum DeleteItem {
+    /// It's a node type, need to hash first
+    Node(Node),
+    /// It's a hash, can delete from DB
+    Hash(Hash)
+}
 
 /// The Node in the MPT.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]

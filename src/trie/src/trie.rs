@@ -1,18 +1,21 @@
-use crate::encoding::{key_bytes_to_hex, prefix_len};
+use std::collections::HashSet;
+use crate::encoding::{key_bytes_to_hex, prefix_len, TERMINAL};
 use crate::error::Error;
 use crate::hasher::NodeHasher;
-use crate::node::{Node, CHILD_SIZE};
+use crate::node::{Node, CHILD_SIZE, DeleteItem};
 use crate::storage::{Cache, CacheIndex, MemorySlot, NodeLocation};
 use common::{ensure, Hash};
 use kv_storage::HashDB;
+use crate::rstd::mem;
 
 type Prefix = Vec<u8>;
 
+/// The Trie data type for storage
 pub struct Trie<'a, H: HashDB> {
     db: &'a mut H,
     root_loc: NodeLocation,
     cache: Cache,
-    // delete_items: HashSet<Node>,
+    delete_items: HashSet<DeleteItem>,
     unhashed: u32,
     node_hasher: NodeHasher,
 }
@@ -24,7 +27,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
             db,
             root_loc: NodeLocation::None,
             cache: Cache::new(),
-            // delete_items: Default::default(),
+            delete_items: Default::default(),
             unhashed: 0,
             node_hasher: NodeHasher::new(),
         }
@@ -73,6 +76,132 @@ impl<'a, H: HashDB> Trie<'a, H> {
         }
     }
 
+    pub fn try_delete(&mut self, key: &[u8]) -> Result<(), Error> {
+        ensure!(!key.is_empty(), Error::KeyCannotBeEmpty)?;
+        self.unhashed += 1;
+        self.root_loc = self.delete(self.root_loc(), &key_bytes_to_hex(key))?;
+        Ok(())
+    }
+
+    fn delete(&mut self, node_loc: NodeLocation, key: &[u8]) -> Result<NodeLocation, Error> {
+        // TODO: maybe using mutable reference here?
+        // The original idea going for is using mutable reference, something like:
+        //
+        // let (cache_index, node) = self.get_node_loc_mut(node_loc)?;
+        //
+        // Then only invoke self.take_node_loc(node_loc) only when necessary.
+        // The problem with above is updating NodeLocation to updated can be troublesome
+        // and borrow restriction in code is greatly increased.
+        // Ideally the above should be faster, no? But how much faster?
+        // The current implementation is much simpler.
+
+        let (_, node) = self.take_node_loc(node_loc)?;
+        match node {
+            Node::Empty => Err(Error::KeyNotExists),
+            Node::Full { mut children } => {
+                let sliceidx = key[0] as usize;
+                let child = children[sliceidx];
+                let child_loc = self.delete(child, &key[1..])?;
+                children[sliceidx] = child_loc;
+
+                // Because node is Full node, we require at least 2 children.
+                // If child_loc is not None, that means there are at least
+                // 2 children. If there is only one children, we should reduce
+                // it to a Short node. If there are no children, implementation
+                // is wrong, PANIC!
+                let n = if !matches!(child_loc, NodeLocation::None) {
+                    Node::Full { children }
+                } else {
+                    let mut pos = -1;
+                    for (i, c) in children.iter().enumerate() {
+                        if !matches!(c, NodeLocation::None) {
+                            if pos == -1 { pos = i as i8; }
+                            else { pos = -2; break; }
+                        }
+                    }
+                    if pos > -1 {
+                        let pos = pos as u8;
+                        if pos != TERMINAL {
+                            // Now we have only one children. We need to take the key, val of the
+                            // children and append the key to the pos char
+                            let (_, n) = self.get_node_loc_mut(&children[pos as usize])?;
+                            if matches!(n, Node::Short {..}) {
+                                let (_, n) = self.take_node_loc(children[pos as usize])?;
+                                match n {
+                                    Node::Short { mut key, val } => {
+                                        let mut k = vec![pos];
+                                        k.append(&mut key);
+                                        Node::Short { key: k, val }
+                                    },
+                                    _ => {
+                                        Node::Short { key: vec![pos], val: children[pos as usize] }
+                                    }
+                                }
+                            } else {
+                                Node::Short { key: vec![pos], val: children[pos as usize] }
+                            }
+                        } else {
+                            Node::Short { key: vec![pos], val: children[pos as usize] }
+                        }
+                    } else {
+                        Node::Full { children }
+                    }
+                };
+                Ok(NodeLocation::Memory(self.cache.insert(MemorySlot::Updated(n))))
+            }
+            Node::Short { key: mut nkey, val: nval } => {
+                let matchlen = prefix_len(&nkey, &key);
+
+                // no match for key and node key, return directly
+                if matchlen < key.len() {
+                    return Err(Error::KeyNotExists);
+                } else if matchlen == key.len() {
+                    self.destroy(&node_loc)?;
+                    return Ok(NodeLocation::None);
+                }
+
+                let child_loc = self.delete(nval, &key[matchlen..])?;
+
+                // Here child_loc cannot be empty. The reason is the child can only be one of
+                // value node (which is handled above), at lease two items Full node
+                // (otherwise we can make it into a Short node or value node), or a reduced
+                // Short node from one item Full node. Short node link to another short node,
+                // would be reduced to a single Short node.
+                ensure!(!matches!(child_loc, NodeLocation::None), Error::InvalidNodeLocation)?;
+
+                let (_, child) = self.get_node_loc_mut(&child_loc)?;
+                let n = match child {
+                    Node::Short { key: ckey, val: cval } => {
+                        nkey.append(ckey);
+                        let val = mem::take(cval);
+                        self.destroy(&child_loc)?;
+                        Node::Short { key: nkey, val }
+                    }
+                    _ => {
+                        Node::Short { key: nkey, val: child_loc }
+                    }
+                };
+                Ok(NodeLocation::Memory(self.cache.insert(MemorySlot::Updated(n))))
+            }
+            _ => panic!("invalid state")
+        }
+    }
+
+    fn destroy(&mut self, node_loc: &NodeLocation) -> Result<(), Error> {
+        match node_loc {
+            NodeLocation::None => Ok(()),
+            NodeLocation::Persistence(_) => Err(Error::InvalidNodeLocation),
+            NodeLocation::Memory(cache_index) => {
+                let d = match self.cache.take(*cache_index) {
+                    MemorySlot::Updated(n) => DeleteItem::Node(n),
+                    MemorySlot::Loaded(h, _) => DeleteItem::Hash(h),
+                };
+                self.delete_items.insert(d);
+                Ok(())
+            }
+        }
+    }
+
     /// Try to update the key with provided value
     pub fn try_update(&mut self, key: &[u8], val: &[u8]) -> Result<(), Error> {
         ensure!(!key.is_empty(), Error::KeyCannotBeEmpty)?;
@@ -90,25 +219,6 @@ impl<'a, H: HashDB> Trie<'a, H> {
         Ok(())
     }
 
-    // pub fn try_delete(&mut self, key: &[u8]) -> Result<(), Error> {
-    //     Ok(())
-    // }
-
-    // fn destroy(&mut self, node_loc: &NodeLocation) -> Result<(), Error> {
-    //     match node_loc {
-    //         NodeLocation::None => Ok(()),
-    //         NodeLocation::Persistence(_) => Err(Error::InvalidNodeLocation),
-    //         NodeLocation::Memory(cache_index) => {
-    //             match self.cache.take(*cache_index) {
-    //                 // since it's still in memory, no need to do anything
-    //                 MemorySlot::Updated(n) => self.delete_items.insert(n),
-    //                 MemorySlot::Loaded(_, n) => self.delete_items.insert(n),
-    //             };
-    //             Ok(())
-    //         }
-    //     }
-    // }
-
     fn insert(
         &mut self,
         node_loc: NodeLocation,
@@ -119,24 +229,6 @@ impl<'a, H: HashDB> Trie<'a, H> {
         let val_node = Node::Value(val);
         let val_loc = NodeLocation::Memory(self.cache.insert(MemorySlot::Updated(val_node)));
         self.insert_inner(node_loc, prefix, key, val_loc)
-    }
-
-    fn take_node_loc(&mut self, node_loc: NodeLocation) -> Result<(CacheIndex, Node), Error> {
-        let cache_index = match node_loc {
-            NodeLocation::Persistence(h) => self.load_to_cache(&h),
-            NodeLocation::Memory(i) => i,
-            _ => {
-                return Err(Error::InvalidNodeLocation);
-            }
-        };
-
-        // Always fetch the node from cache
-        let node = match self.cache.take(cache_index) {
-            MemorySlot::Updated(node) => node,
-            MemorySlot::Loaded(_, node) => node,
-        };
-
-        Ok((cache_index, node))
     }
 
     fn insert_inner(
@@ -252,6 +344,38 @@ impl<'a, H: HashDB> Trie<'a, H> {
             }
         };
         Ok(h)
+    }
+
+    fn extract_cache_index(&mut self, node_loc: &NodeLocation) -> Result<CacheIndex, Error> {
+        match node_loc {
+            NodeLocation::Persistence(h) => Ok(self.load_to_cache(h)),
+            NodeLocation::Memory(i) => Ok(*i),
+            _ => Err(Error::InvalidNodeLocation)
+        }
+    }
+
+    fn get_node_loc_mut(&mut self, node_loc: &NodeLocation) -> Result<(CacheIndex, &mut Node), Error> {
+        let cache_index = self.extract_cache_index(node_loc)?;
+
+        // Always fetch the node from cache
+        let node = match self.cache.get_mut(cache_index) {
+            MemorySlot::Updated(node) => node,
+            MemorySlot::Loaded(_, node) => node,
+        };
+
+        Ok((cache_index, node))
+    }
+
+    fn take_node_loc(&mut self, node_loc: NodeLocation) -> Result<(CacheIndex, Node), Error> {
+        let cache_index = self.extract_cache_index(&node_loc)?;
+
+        // Always fetch the node from cache
+        let node = match self.cache.take(cache_index) {
+            MemorySlot::Updated(node) => node,
+            MemorySlot::Loaded(_, node) => node,
+        };
+
+        Ok((cache_index, node))
     }
 
     fn load_to_cache(&mut self, h: &Hash) -> CacheIndex {

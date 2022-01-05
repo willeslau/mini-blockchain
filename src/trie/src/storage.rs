@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 
 pub type CacheIndex = usize;
 
+// TODO: remove Copy trait implementation here
 /// Enum indicating where the node is currently stored
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
@@ -16,6 +17,12 @@ pub enum NodeLocation {
     Memory(CacheIndex),
     /// Not stored anywhere
     None,
+}
+
+impl Default for NodeLocation {
+    fn default() -> Self {
+        NodeLocation::None
+    }
 }
 
 /// The memory slot type for nodes stored in memory
@@ -62,6 +69,10 @@ impl Cache {
                 MemorySlot::Loaded(_, node) => node.clone(),
             },
         }
+    }
+
+    pub fn get_mut(&mut self, index: CacheIndex) -> &mut MemorySlot {
+        self.slots.get_mut(index).unwrap()
     }
 
     pub fn replace(&mut self, index: CacheIndex, storage_slot: MemorySlot) {

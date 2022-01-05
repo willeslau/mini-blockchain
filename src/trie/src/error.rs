@@ -8,4 +8,6 @@ pub enum Error {
     InvalidNodeLocation,
     /// The state of the trie is invalid
     InvalidTrieState,
+    /// The key is not found in the trie
+    KeyNotExists,
 }

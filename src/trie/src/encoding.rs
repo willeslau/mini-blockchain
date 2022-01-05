@@ -1,4 +1,4 @@
-const TERMINAL: u8 = 16;
+pub(crate) const TERMINAL: u8 = 16;
 const BITS_PER_NIBBLE: u8 = 4;
 
 pub(crate) fn prefix_len(a: &[u8], b: &[u8]) -> usize {

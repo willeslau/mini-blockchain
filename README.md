@@ -2,10 +2,17 @@
 A mini blockchain for studying purposes and rust. 
 Based on the implementation of `go-ethereum`.
 
-Major TODOs:
-1. Add tokio server, https://tokio.rs/tokio/tutorial/channels
-2. Understand `AtomicBool` ordering: https://doc.rust-lang.org/std/sync/atomic/struct.AtomicBool.html
-3. Understand `Send` + `Sync` mechanism
+## Build
+
+## Run tests with coverage
+To run tests and check coverage, run the below:
+```bash
+rustup component add llvm-tools-preview
+export RUSTFLAGS="-Zinstrument-coverage"
+cargo build
+export LLVM_PROFILE_FILE="your_name-%p-%m.profraw"
+cargo test
+```
 
 Reading:
 * Solidity Programming Essentials
