@@ -16,3 +16,5 @@ serde = "1.0.132"
 kv-storage = { path = "../kv-storage" }
 common = { path = "../common" }
 rlp = { path = "../rlp" }
+log = "0.4.14"
+env_logger = "0.9.0"
