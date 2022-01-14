@@ -1,10 +1,11 @@
 use tiny_keccak::{Hasher as KeccakHasherTrait, Keccak};
 
 pub const HASH_LENGTH: usize = 32;
-pub type Hash = [u8; HASH_LENGTH];
+pub type H256 = [u8; HASH_LENGTH];
+pub type H512 = [u8; 64];
 
-pub fn bytes_to_hash(v: &[u8]) -> Hash {
-    let mut hash = Hash::default();
+pub fn bytes_to_hash(v: &[u8]) -> H256 {
+    let mut hash = H256::default();
     for i in 0..v.len().min(HASH_LENGTH) {
         hash[i] = v[i];
     }
@@ -19,7 +20,7 @@ pub trait Hasher: Sync + Send {
     const LENGTH: usize;
 
     /// Compute the hash of the provided slice of bytes returning the `Out` type of the `Hasher`
-    fn hash(x: &[u8]) -> Hash;
+    fn hash(x: &[u8]) -> H256;
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -27,7 +28,7 @@ pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
     const LENGTH: usize = HASH_LENGTH;
 
-    fn hash(x: &[u8]) -> Hash {
+    fn hash(x: &[u8]) -> H256 {
         let mut keccak = Keccak::v256();
         keccak.update(x);
         let mut out = [0u8; 32];

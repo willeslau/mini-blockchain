@@ -1,4 +1,4 @@
-use crate::{HashDB};
+use crate::{DBStorage};
 use std::collections::HashMap;
 
 /// In memory database storage. Use for testing purpose only.
@@ -14,7 +14,7 @@ impl MemoryDB {
     }
 }
 
-impl HashDB for MemoryDB {
+impl DBStorage for MemoryDB {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         match self.data.get(key) {
             None => None,

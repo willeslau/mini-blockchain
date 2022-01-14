@@ -13,7 +13,7 @@ impl Encodable for Vec<u8> {
     }
 }
 
-impl Encodable for common::Hash {
+impl Encodable for common::H256 {
     fn encode(&self, stream: &mut RLPStream) {
         stream.write_iter(self.iter().cloned())
     }

@@ -4,15 +4,15 @@ use crate::hasher::NodeHasher;
 use crate::node::{DeleteItem, Node, CHILD_SIZE};
 use crate::rstd::mem;
 use crate::storage::{Cache, CacheIndex, MemorySlot, NodeLocation};
-use common::{ensure, Hash};
-use kv_storage::HashDB;
+use common::{ensure, H256};
+use kv_storage::DBStorage;
 use log::debug;
 use std::collections::HashSet;
 
 type Prefix = Vec<u8>;
 
 /// The Trie data type for storage
-pub struct Trie<'a, H: HashDB> {
+pub struct Trie<'a, H: DBStorage> {
     db: &'a mut H,
     root_loc: NodeLocation,
     cache: Cache,
@@ -21,7 +21,7 @@ pub struct Trie<'a, H: HashDB> {
     node_hasher: NodeHasher,
 }
 
-impl<'a, H: HashDB> Trie<'a, H> {
+impl<'a, H: DBStorage> Trie<'a, H> {
     /// The root_hash needs to be the empty node hash
     pub fn new(db: &'a mut H) -> Self {
         Self {
@@ -383,11 +383,11 @@ impl<'a, H: HashDB> Trie<'a, H> {
     }
 
     /// Commit cached node changes to underlying database. Update trie hash as well.
-    pub fn commit(&mut self) -> Result<Hash, Error> {
+    pub fn commit(&mut self) -> Result<H256, Error> {
         // TODO: remove items in self.delete_items in db
         let node_loc = self.root_loc();
         let h = match node_loc {
-            NodeLocation::None => Hash::default(),
+            NodeLocation::None => H256::default(),
             NodeLocation::Persistence(h) => h,
             NodeLocation::Memory(x) => {
                 match self.cache.take(x) {
@@ -438,7 +438,7 @@ impl<'a, H: HashDB> Trie<'a, H> {
         Ok((cache_index, node))
     }
 
-    fn load_to_cache(&mut self, h: &Hash) -> CacheIndex {
+    fn load_to_cache(&mut self, h: &H256) -> CacheIndex {
         let node = match self.db.get(h) {
             None => Node::Empty,
             Some(bytes) => Node::from(bytes),

@@ -1,6 +1,6 @@
 use crate::node::Node;
 use crate::rstd;
-use common::Hash;
+use common::H256;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -12,7 +12,7 @@ pub type CacheIndex = usize;
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum NodeLocation {
     /// Currently in the persistence storage
-    Persistence(Hash),
+    Persistence(H256),
     /// Currently in memory
     Memory(CacheIndex),
     /// Not stored anywhere
@@ -30,7 +30,7 @@ pub(crate) enum MemorySlot {
     /// The memory slot is updated, we need to flush it
     Updated(Node),
     /// Memory slot is just loaded from persistence, no changes made
-    Loaded(Hash, Node),
+    Loaded(H256, Node),
 }
 
 /// In memory storage location for nodes

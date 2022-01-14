@@ -1,5 +1,5 @@
 /// The generic trait for key-value pair database storage
-pub trait HashDB: Send + Sync {
+pub trait DBStorage: Send + Sync {
     /// Look up a given hash into the bytes that hash to it, returning None if the
     /// hash is not known.
     fn get(&self, key: &[u8]) -> Option<Vec<u8>>;

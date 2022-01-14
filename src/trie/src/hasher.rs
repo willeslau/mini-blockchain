@@ -1,8 +1,8 @@
 use crate::encoding::hex_to_compact;
 use crate::node::{Node, CHILD_SIZE};
 use crate::storage::{Cache, MemorySlot, NodeLocation};
-use common::{Hash, Hasher, KeccakHasher};
-use kv_storage::HashDB;
+use common::{H256, Hasher, KeccakHasher};
+use kv_storage::DBStorage;
 use rlp::RLPStream;
 
 pub(crate) struct NodeHasher {
@@ -14,7 +14,7 @@ impl NodeHasher {
         Self { hash_count: 0 }
     }
 
-    pub fn hash<H: HashDB>(&mut self, node: Node, db: &mut H, cache: &mut Cache) -> Hash {
+    pub fn hash<H: DBStorage>(&mut self, node: Node, db: &mut H, cache: &mut Cache) -> H256 {
         match self.hash_inner(node, db, cache) {
             ChildReference::Hash(h) => h,
             ChildReference::Inline(v) => self.insert_db_raw(v, db),
@@ -22,7 +22,7 @@ impl NodeHasher {
         }
     }
 
-    pub fn hash_inner<H: HashDB>(
+    pub fn hash_inner<H: DBStorage>(
         &mut self,
         node: Node,
         db: &mut H,
@@ -30,7 +30,7 @@ impl NodeHasher {
     ) -> ChildReference {
         match node {
             // TODO: add empty node hash
-            Node::Empty => ChildReference::Hash(Hash::default()),
+            Node::Empty => ChildReference::Hash(H256::default()),
             Node::Full { children } => self.hash_full_node_children(children, db, cache),
             Node::Short { key, val: node_loc } => {
                 let nd = self.take_node_loc(node_loc, cache);
@@ -54,7 +54,7 @@ impl NodeHasher {
         }
     }
 
-    fn hash_short_node_children<H: HashDB>(
+    fn hash_short_node_children<H: DBStorage>(
         &mut self,
         key: Vec<u8>,
         db: &mut H,
@@ -75,7 +75,7 @@ impl NodeHasher {
         self.insert_encoded(encoded, db)
     }
 
-    fn hash_full_node_children<H: HashDB>(
+    fn hash_full_node_children<H: DBStorage>(
         &mut self,
         children: Box<[NodeLocation; CHILD_SIZE]>,
         db: &mut H,
@@ -109,7 +109,7 @@ impl NodeHasher {
     }
 
     /// Hash the encoded node or keep the raw data if len is short
-    fn insert_encoded<H: HashDB>(&mut self, encoded: Vec<u8>, db: &mut H) -> ChildReference {
+    fn insert_encoded<H: DBStorage>(&mut self, encoded: Vec<u8>, db: &mut H) -> ChildReference {
         if encoded.len() >= KeccakHasher::LENGTH {
             ChildReference::Hash(self.insert_db_raw(encoded, db))
         } else {
@@ -117,7 +117,7 @@ impl NodeHasher {
         }
     }
 
-    fn insert_db_raw<H: HashDB>(&mut self, encoded: Vec<u8>, db: &mut H) -> Hash {
+    fn insert_db_raw<H: DBStorage>(&mut self, encoded: Vec<u8>, db: &mut H) -> H256 {
         let hash = KeccakHasher::hash(&encoded);
         db.insert(Vec::from(hash), encoded);
         self.hash_count += 1;
@@ -126,7 +126,7 @@ impl NodeHasher {
 }
 
 pub(crate) enum NodeData {
-    Hash(Hash),
+    Hash(H256),
     Node(Node),
 }
 
@@ -135,7 +135,7 @@ pub(crate) enum NodeData {
 /// of the children. ChildReference is that sth.
 #[derive(Debug, Clone)]
 pub(crate) enum ChildReference {
-    Hash(Hash),
+    Hash(H256),
     Inline(Vec<u8>),
     Value(Vec<u8>),
 }
