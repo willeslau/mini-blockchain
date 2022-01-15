@@ -10,3 +10,6 @@ mio = { version = "0.8", features = ["os-poll", "net"] }
 futures = "0.3.19"
 crossbeam-deque = "0.8.1"
 log = "0.4.14"
+slab = "0.4.5"
+
+common = { path = "../../common" }

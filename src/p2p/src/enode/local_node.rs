@@ -1,16 +1,19 @@
 use std::cell::RefCell;
-use std::net::{SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::rc::Rc;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use common::{KeyPair};
+use crate::config::Config;
 use crate::enode::DB;
 use crate::enode::node::NodeId;
 use crate::enode::url_v4::*;
 
+const DEFAULT_LISTEN_PORT: u16 = 30303;
+
 pub(crate) struct LnEndpoint  {
-    static_ip: SocketAddr,
-    fallback_ip: SocketAddr,
-    fallback_udp: u16,
+    address: SocketAddr,
+    udp_port: u16,
 }
 
 /// LocalNode produces the signed node record of a local node, i.e. a node run in the
@@ -26,25 +29,30 @@ pub(crate) struct LocalNode {
     // everything below is protected by a lock
     seq: u64,
     entries: Vec<u8>,
-    // endpoint: LnEndpoint,
+    endpoint: LnEndpoint,
 }
 
 impl LocalNode {
-    pub fn new(key_pair: KeyPair, db: Arc<Mutex<DB>>) -> Self {
-        let id = pubkey_to_idv4(key_pair.public());
-        let mut seq;
-        {
-            let d = db.lock().unwrap();
-            seq = d.local_seq(&id);
-        }
+    pub fn new(config: &Config, db: Arc<Mutex<DB>>) -> Self {
+        let id = pubkey_to_idv4(config.key_pair.public());
+        let seq = { db.lock().unwrap().local_seq(&id) };
+
+        // create endpoint
+        let listen_address = match config.listen_address {
+            None => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), DEFAULT_LISTEN_PORT)),
+            Some(addr) => addr,
+        };
+        let udp_port = config.udp_port.unwrap_or_else(|| listen_address.port());
+
+        // create the node itself
         let mut ln = Self {
             cur: None,
             id,
-            key_pair,
+            key_pair: config.key_pair.clone(),
             db,
             seq,
             entries: vec![],
-            // endpoint: LnEndpoint {},
+            endpoint: LnEndpoint { address: listen_address, udp_port }
         };
 
         ln.invalidate();

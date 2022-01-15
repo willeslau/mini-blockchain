@@ -1,85 +1,105 @@
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::thread::JoinHandle;
-use mio::Poll;
+use std::time::Duration;
+use mio::{event, Events, Interest, Poll, Token};
+use mio::event::Event;
+use mio::net::{TcpListener, TcpStream};
+use slab::Slab;
 use crate::error::Error;
+use crate::handler::IoHandler;
+use common::ensure;
+
+const MAX_TOKEN: usize = 1024;
 
 /// Dispatch and manages the IO handlers
-pub struct IOService {
+pub struct IOService {}
 
+impl IOService {}
+
+pub enum NetworkIOMessage<Message> {
+    /// A message to handle for the event loop
+    Message(Message),
 }
 
-impl IOService {
-
+struct IOServiceInner<Message> {
+    is_stopped: AtomicBool,
+    /// The work stealing deque to a pool of Worker threads
+    worker_deque: crossbeam_deque::Worker<Message>,
+    /// The event loop poll
+    poll: Poll,
+    handlers: HashMap<usize, Box<dyn IoHandler<Message>>>,
 }
 
-struct IOServiceInner {
-    thread: Option<JoinHandle<()>>,
-    poll: Arc<Mutex<Poll>>,
-}
+impl<Message> IOServiceInner<Message> {
+    pub fn new() -> Result<Self, Error> {
+        let w = crossbeam_deque::Worker::new_fifo();
+        Ok(Self {
+            is_stopped: AtomicBool::new(false),
+            worker_deque: w,
+            poll: Poll::new()?,
+            handlers: Default::default(),
+        })
+    }
 
-impl IOServiceInner {
-    pub fn start() -> Result<Self, Error> {
-        let mut poll = Arc::new(Mutex::new(Poll::new()?));
-
-        let io = IOServiceInner { thread: None, poll };
-
-        std::thread::spawn(move || {
-
-        });
-        // Create a poll instance.
-
-        // Create storage for events.
-        let mut events = Events::with_capacity(128);
-
-        // Setup the server socket.
-        let addr = "127.0.0.1:13265".parse()?;
-        let mut server = TcpListener::bind(addr)?;
-        // Start listening for incoming connections.
-        poll.registry()
-            .register(&mut server, SERVER, Interest::READABLE)?;
-
-        // Setup the client socket.
-        let mut client = TcpStream::connect(addr)?;
-        // Register the socket.
-        poll.registry()
-            .register(&mut client, CLIENT, Interest::READABLE | Interest::WRITABLE)?;
-
-        // Start an event loop.
+    /// Start an event loop.
+    pub fn start(&mut self) {
+        let mut events = Events::with_capacity(1024);
         loop {
+            if self.is_stopped.load(Ordering::SeqCst) { break; }
+
             // Poll Mio for events, blocking until we get an event.
-            poll.poll(&mut events, None)?;
+            self.poll.poll(&mut events, Some(Duration::from_millis(2000))).expect("cannot poll event");
 
             // Process each event.
             for event in events.iter() {
-                // We can use the token we previously provided to `register` to
-                // determine for which socket the event is.
-                match event.token() {
-                    SERVER => {
-                        // If this is an event for the server, it means a connection
-                        // is ready to be accepted.
-                        //
-                        // Accept the connection and drop it immediately. This will
-                        // close the socket and notify the client of the EOF.
-                        let connection = server.accept();
-                        drop(connection);
-                    }
-                    CLIENT => {
-                        if event.is_writable() {
-                            // We can (likely) write to the socket without blocking.
-                        }
-
-                        if event.is_readable() {
-                            // We can (likely) read from the socket without blocking.
-                        }
-
-                        // Since the server just shuts down the connection, let's
-                        // just exit from our event loop.
-                        return Ok(());
-                    }
-                    // We don't expect any events with tokens other than those we provided.
-                    _ => unreachable!(),
-                }
+                self.dispatch_event(event);
             }
         }
+    }
+
+    pub fn dispatch_event(&mut self, event: &Event) {}
+
+    pub fn register<S: event::Source + ?Sized>(
+        &mut self,
+        source: &mut S,
+        token: Token,
+        interest: Interest,
+        handler: Box<dyn IoHandler<Message>>,
+    ) -> Result<(), Error> {
+        ensure!(token.0 <= MAX_TOKEN, Error::InvalidTokenSize)?;
+        self.handlers.insert(token.0, handler);
+        self.poll.registry().register(source, token, interest);
+        Ok(())
+    }
+
+    pub fn deregister<S: event::Source + ?Sized>(
+        &mut self,
+        source: &mut S,
+        token: Token,
+    ) -> Result<(), Error> {
+        ensure!(token.0 <= MAX_TOKEN, Error::InvalidTokenSize)?;
+        self.handlers.remove(&token.0);
+        self.poll.registry().deregister(source);
+        Ok(())
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::IOError(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn slab_works() {
+        let mut s = slab::Slab::new();
+        let i = s.insert(123);
+        let j = s.insert(124);
+        println!("{}, {}", i, j);
     }
 }

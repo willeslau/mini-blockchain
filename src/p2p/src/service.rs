@@ -32,7 +32,7 @@ impl NetworkService {
         };
         let db = Arc::new(Mutex::new(db));
 
-        let local_node = LocalNode::new(config.key_pair.clone(), db.clone());
+        let local_node = LocalNode::new(&config, db.clone());
         let s = Self {
             name,
             running: Arc::new(AtomicBool::new(false)),
