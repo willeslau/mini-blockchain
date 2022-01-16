@@ -11,7 +11,7 @@ use crate::enode::url_v4::*;
 
 const DEFAULT_LISTEN_PORT: u16 = 30303;
 
-pub(crate) struct LnEndpoint  {
+pub(crate) struct NodeEndpoint {
     address: SocketAddr,
     udp_port: u16,
 }
@@ -29,7 +29,7 @@ pub(crate) struct LocalNode {
     // everything below is protected by a lock
     seq: u64,
     entries: Vec<u8>,
-    endpoint: LnEndpoint,
+    endpoint: NodeEndpoint,
 }
 
 impl LocalNode {
@@ -52,7 +52,7 @@ impl LocalNode {
             db,
             seq,
             entries: vec![],
-            endpoint: LnEndpoint { address: listen_address, udp_port }
+            endpoint: NodeEndpoint { address: listen_address, udp_port }
         };
 
         ln.invalidate();

@@ -5,6 +5,9 @@ mod protocol;
 mod enode;
 mod error;
 mod nat;
+mod handshake;
+mod connection;
+mod host;
 
 #[cfg(test)]
 mod tests {

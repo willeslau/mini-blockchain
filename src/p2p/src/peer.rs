@@ -1,5 +1,5 @@
 use secp256k1::PublicKey;
-use crate::protocol::Cap;
+use crate::protocol::CapabilityInfo;
 
 pub(crate) const BASE_PROTOCOL_VERSION: u64 = 5;
 pub(crate) const BASE_PROTOCOL_LENGTH: u64 = 16u64;
@@ -13,7 +13,7 @@ pub type PeerId = usize;
 pub(crate) struct ProtoHandshake {
     pub version: u64,
     pub name: String,
-    pub caps: Vec<Cap>,
+    pub caps: Vec<CapabilityInfo>,
     pub listen_port: Option<u64>,
     pub id: PublicKey
 }
@@ -29,7 +29,7 @@ impl ProtoHandshake {
         }
     }
 
-    pub fn append_cap(&mut self, cap: Cap) {
+    pub fn append_cap(&mut self, cap: CapabilityInfo) {
         self.caps.push(cap);
     }
 }

@@ -3,10 +3,15 @@ use crate::peer::PeerId;
 
 pub type ProtocolId = u64;
 
-/// Cap is the structure of a peer capability.
-pub(crate) struct Cap {
-    name: String,
-    version: u8
+#[derive(Debug, PartialEq, Eq)]
+/// Protocol info
+pub struct CapabilityInfo {
+    /// Protocol ID
+    pub protocol: ProtocolId,
+    /// Protocol version
+    pub version: u8,
+    /// Total number of packet IDs this protocol support.
+    pub packet_count: u8,
 }
 
 /// Protocol represents a P2P subprotocol implementation.

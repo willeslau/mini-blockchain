@@ -23,6 +23,10 @@ pub trait Hasher: Sync + Send {
     fn hash(x: &[u8]) -> H256;
 }
 
+pub fn keccak(x: &[u8]) -> H256 {
+    KeccakHasher::hash(x)
+}
+
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct KeccakHasher;
 impl Hasher for KeccakHasher {

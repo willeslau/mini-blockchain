@@ -51,7 +51,7 @@ impl<Message> IOServiceInner<Message> {
             if self.is_stopped.load(Ordering::SeqCst) { break; }
 
             // Poll Mio for events, blocking until we get an event.
-            self.poll.poll(&mut events, Some(Duration::from_millis(2000))).expect("cannot poll event");
+            self.poll.poll(&mut events, None).expect("cannot poll event");
 
             // Process each event.
             for event in events.iter() {
