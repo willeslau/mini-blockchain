@@ -44,7 +44,7 @@ impl Handshake {
         // TODO: register timeout check in the event loop
 
         if originate {
-            lf.write_auth()
+            self.write_auth()
         }
         Ok(())
     }

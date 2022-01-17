@@ -1,5 +1,7 @@
 //! Secret key implementation.
 
+use std::borrow::Borrow;
+use hex::{FromHex, FromHexError, ToHex};
 use secp256k1::constants::SECRET_KEY_SIZE as SECP256K1_SECRET_KEY_SIZE;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{PublicKey, SecretKey};
@@ -9,8 +11,36 @@ use crate::error::Error;
 use crate::{H256, H512, HASH_LENGTH};
 
 use lazy_static::lazy_static;
+use secp256k1::ecdh::SharedSecret;
 
-pub type Public = H512;
+// pub type Public = H512;
+#[derive(Debug, PartialEq, Clone)]
+pub struct Public {
+    inner: H512,
+}
+
+impl Public {
+    pub fn copy_from_slice(&mut self, data: &[u8]) {
+        self.inner.copy_from_slice(data);
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, Error> {
+        let inner = <H512>::from_hex(s)?;
+        Ok(Self { inner })
+    }
+}
+
+impl From<FromHexError> for Error{
+    fn from(_: FromHexError) -> Self {
+        Error::CannotParseHexString
+    }
+}
+
+impl Default for Public {
+    fn default() -> Self {
+        Self { inner: [0u8; 64] }
+    }
+}
 
 lazy_static! {
 	static ref SECP256K1: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
@@ -34,7 +64,7 @@ impl KeyPair {
         let public_key = PublicKey::from_secret_key(&SECP256K1, &secret_key);
         let serialized = public_key.serialize_uncompressed();
 
-        let mut public = [0u8; 64];
+        let mut public = Public::default();
         public.copy_from_slice(&serialized[1..65]);
 
         Self { secret: Secret::from(secret_key), public }
@@ -73,6 +103,15 @@ impl Secret {
         Some(Secret { inner: Box::new(h) })
     }
 
+    /// Creates a `Secret` from the given `str` representation,
+    /// returning an error for hex big endian representation of
+    /// the secret.
+    /// Caller is responsible to zeroize input slice.
+    pub fn copy_from_str(s: &str) -> Result<Self, Error> {
+        let h = <H256>::from_hex(s)?;
+        Ok(Secret { inner: Box::new(h) })
+    }
+
     /// Creates zero key, which is invalid for crypto operations, but valid for math operation.
     pub fn zero() -> Self {
         Secret { inner: Box::new([0u8; HASH_LENGTH]) }
@@ -89,6 +128,14 @@ impl Secret {
     /// Warning the resulting secret key need to be zeroized manually.
     pub fn to_secp256k1_secret(&self) -> Result<SecretKey, Error> {
         SecretKey::from_slice(&self.inner[..]).map_err(Into::into)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.inner.as_ref()
+    }
+
+    pub fn to_hex(&self) -> String {
+        self.inner.encode_hex::<String>()
     }
 }
 
@@ -137,5 +184,39 @@ impl zeroize::DefaultIsZeroes for ZeroizeSecretKey {}
 impl From<secp256k1::Error> for Error {
     fn from(e: secp256k1::Error) -> Self {
         Error::Secp256k1(e)
+    }
+}
+
+/// Create a shared secret for message exchange.
+/// See https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange#cite_note-imperfectfs-4
+pub fn create_shared_secret(secret: &Secret, public: &Public) -> Result<Secret, Error> {
+    let pdata = {
+        let mut temp = [4u8; 65];
+        (&mut temp[1..65]).copy_from_slice(&public.inner[0..64]);
+        temp
+    };
+
+    let publ = PublicKey::from_slice(&pdata)?;
+    let sec = SecretKey::from_slice(secret.as_bytes())?;
+    let shared = SharedSecret::new_with_hash(&publ, &sec, |x, _| x.into());
+
+    Secret::import_key(&shared[0..32]).map_err(|_| Error::Secp256k1(secp256k1::Error::InvalidSecretKey))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{create_shared_secret, Public, Secret};
+    use std::str::FromStr;
+
+    #[test]
+    fn test_agree() {
+        // Just some random values for secret/public to check we agree with previous implementation.
+        let secret =
+            Secret::copy_from_str(&"01a400760945613ff6a46383b250bf27493bfe679f05274916182776f09b28f1").unwrap();
+        let public= Public::from_str("e37f3cbb0d0601dc930b8d8aa56910dd5629f2a0979cc742418960573efc5c0ff96bc87f104337d8c6ab37e597d4f9ffbd57302bc98a825519f691b378ce13f5").unwrap();
+        let shared = create_shared_secret(&secret, &public);
+
+        assert!(shared.is_ok());
+        assert_eq!(shared.unwrap().to_hex(), "28ab6fad6afd854ff27162e0006c3f6bd2daafc0816c85b5dfb05dbb865fa6ac",);
     }
 }
