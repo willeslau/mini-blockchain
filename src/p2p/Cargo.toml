@@ -12,6 +12,7 @@ tokio-util = { version = "0.6.9", features = ["full"] }
 bytes = "1"
 common = { path = "../common" }
 kv-storage = { path = "../kv-storage" }
+rlp = { path = "../rlp" }
 
 [dev-dependencies]
 secp256k1 = { version = "0.21.2" }

@@ -1,17 +1,15 @@
 //! Secret key implementation.
 
-use std::borrow::Borrow;
 use hex::{FromHex, FromHexError, ToHex};
 use secp256k1::constants::SECRET_KEY_SIZE as SECP256K1_SECRET_KEY_SIZE;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::{PublicKey, SecretKey};
+use secp256k1::{Message, PublicKey, SecretKey};
 // Why do we need this? http://www.daemonology.net/blog/2014-09-04-how-to-zero-a-buffer.html
 use zeroize::Zeroize;
 use crate::error::Error;
-use crate::{H256, H512, HASH_LENGTH};
+use crate::{H256, H512, HASH_LENGTH, xor};
 
 use lazy_static::lazy_static;
-use secp256k1::ecdh::SharedSecret;
 
 // pub type Public = H512;
 #[derive(Debug, PartialEq, Clone)]
@@ -137,6 +135,16 @@ impl Secret {
     pub fn to_hex(&self) -> String {
         self.inner.encode_hex::<String>()
     }
+
+    pub fn xor(&self, other: &H256) -> H256 {
+        xor(self.inner.as_ref(), other)
+    }
+}
+
+impl AsRef<[u8]> for Secret {
+    fn as_ref(&self) -> &[u8] {
+        self.inner.as_ref()
+    }
 }
 
 impl From<[u8; 32]> for Secret {
@@ -187,26 +195,48 @@ impl From<secp256k1::Error> for Error {
     }
 }
 
-/// Create a shared secret for message exchange.
-/// See https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange#cite_note-imperfectfs-4
-pub fn create_shared_secret(secret: &Secret, public: &Public) -> Result<Secret, Error> {
-    let pdata = {
-        let mut temp = [4u8; 65];
-        (&mut temp[1..65]).copy_from_slice(&public.inner[0..64]);
-        temp
-    };
+/// Signs message with the given secret key.
+/// Returns the corresponding signature.
+pub fn sign(secret: &Secret, message: &H256) -> Result<[u8;65], Error> {
+    let context = &SECP256K1;
+    let sec = SecretKey::from_slice(secret.as_ref())?;
+    let s = context.sign_ecdsa_recoverable(&Message::from_slice(&message[..])?, &sec);
+    let (rec_id, data) = s.serialize_compact();
+    let mut data_arr = [0; 65];
 
-    let publ = PublicKey::from_slice(&pdata)?;
-    let sec = SecretKey::from_slice(secret.as_bytes())?;
-    let shared = SharedSecret::new_with_hash(&publ, &sec, |x, _| x.into());
-
-    Secret::import_key(&shared[0..32]).map_err(|_| Error::Secp256k1(secp256k1::Error::InvalidSecretKey))
+    // no need to check if s is low, it always is
+    data_arr[0..64].copy_from_slice(&data[0..64]);
+    data_arr[64] = rec_id.to_i32() as u8;
+    Ok(data_arr)
 }
+
+pub mod ecdh {
+    use secp256k1::{PublicKey, SecretKey};
+    use secp256k1::ecdh::SharedSecret;
+    use crate::{Public, Secret};
+    use crate::error::Error;
+
+    /// Create a shared secret for message exchange.
+    /// See https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange#cite_note-imperfectfs-4
+    pub fn agree(secret: &Secret, public: &Public) -> Result<Secret, Error> {
+        let pdata = {
+            let mut temp = [4u8; 65];
+            (&mut temp[1..65]).copy_from_slice(&public.inner[0..64]);
+            temp
+        };
+
+        let publ = PublicKey::from_slice(&pdata)?;
+        let sec = SecretKey::from_slice(secret.as_bytes())?;
+        let shared = SharedSecret::new_with_hash(&publ, &sec, |x, _| x.into());
+
+        Secret::import_key(&shared[0..32]).map_err(|_| Error::Secp256k1(secp256k1::Error::InvalidSecretKey))
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
-    use crate::{create_shared_secret, Public, Secret};
-    use std::str::FromStr;
+    use crate::{ecdh::agree, Public, Secret};
 
     #[test]
     fn test_agree() {
@@ -214,7 +244,7 @@ mod tests {
         let secret =
             Secret::copy_from_str(&"01a400760945613ff6a46383b250bf27493bfe679f05274916182776f09b28f1").unwrap();
         let public= Public::from_str("e37f3cbb0d0601dc930b8d8aa56910dd5629f2a0979cc742418960573efc5c0ff96bc87f104337d8c6ab37e597d4f9ffbd57302bc98a825519f691b378ce13f5").unwrap();
-        let shared = create_shared_secret(&secret, &public);
+        let shared = agree(&secret, &public);
 
         assert!(shared.is_ok());
         assert_eq!(shared.unwrap().to_hex(), "28ab6fad6afd854ff27162e0006c3f6bd2daafc0816c85b5dfb05dbb865fa6ac",);

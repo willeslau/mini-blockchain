@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::H256;
 
 pub const U64_LEN: usize = 8;
 
@@ -11,6 +12,14 @@ pub fn vec_to_u64_le(nums: Vec<u8>) -> Result<u64, Error> {
         v.copy_from_slice(&nums[..]);
         Ok(u64::from_le_bytes(v))
     }
+}
+
+pub fn xor(h: &H256, w: &H256) -> H256 {
+    let mut o = [0; 32];
+    for i in 0..32 {
+        o[i] = h[i] ^ w[i];
+    }
+    o
 }
 
 #[cfg(test)]
