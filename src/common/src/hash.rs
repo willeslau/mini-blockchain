@@ -1,8 +1,15 @@
+use rand::Rng;
+use sha2::{Digest, Sha256};
 use tiny_keccak::{Hasher as KeccakHasherTrait, Keccak};
 
 pub const HASH_LENGTH: usize = 32;
+pub type H128 = [u8; 16];
 pub type H256 = [u8; HASH_LENGTH];
 pub type H512 = [u8; 64];
+
+pub fn random_h256() -> H256 {
+    H256::default().map(|_| rand::thread_rng().gen())
+}
 
 pub fn bytes_to_hash(v: &[u8]) -> H256 {
     let mut hash = H256::default();
@@ -23,6 +30,20 @@ pub trait Hasher: Sync + Send {
     fn hash(x: &[u8]) -> H256;
 }
 
+pub fn sha256(data: &[u8]) -> H256 {
+    let v = Sha256::digest(data);
+    H256::from(v)
+}
+
+pub fn hmac_sha256(key: &[u8], input: &[&[u8]], auth_data: &[u8]) -> H256 {
+    let mut hmac = Hmac::<Sha256>::new_from_slice(key).unwrap();
+    for input in input {
+        hmac.update(input);
+    }
+    hmac.update(auth_data);
+    H256::from_slice(&*hmac.finalize().into_bytes())
+}
+
 pub fn keccak(x: &[u8]) -> H256 {
     KeccakHasher::hash(x)
 }
@@ -38,5 +59,16 @@ impl Hasher for KeccakHasher {
         let mut out = [0u8; 32];
         keccak.finalize(&mut out);
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{random_h256};
+
+    #[test]
+    fn random_works() {
+        let r = random_h256();
+        assert_eq!(r.len(), 32);
     }
 }

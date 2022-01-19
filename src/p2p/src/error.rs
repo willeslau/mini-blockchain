@@ -1,6 +1,9 @@
 pub enum Error {
     StdError(std::io::Error),
 
+    // ======== Common Package Error========
+    CommonError(common::Error),
+
     // =========== Socket Related ==========
     SocketNotReady,
     /// The read/write operation was interrupted half way
@@ -9,4 +12,10 @@ pub enum Error {
     IncompleteWrite,
     /// Connection reset by peer
     ConnectionResetByPeer
+}
+
+impl From<common::Error> for Error {
+    fn from(e: common::Error) -> Self {
+        Error::CommonError(e)
+    }
 }
