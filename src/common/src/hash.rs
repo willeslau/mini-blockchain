@@ -1,3 +1,4 @@
+use hmac::{Hmac, Mac};
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use tiny_keccak::{Hasher as KeccakHasherTrait, Keccak};
@@ -7,8 +8,20 @@ pub type H128 = [u8; 16];
 pub type H256 = [u8; HASH_LENGTH];
 pub type H512 = [u8; 64];
 
+// TODO: use macro to resolve this
 pub fn random_h256() -> H256 {
     H256::default().map(|_| rand::thread_rng().gen())
+}
+pub fn random_h128() -> H128 { H128::default().map(|_| rand::thread_rng().gen()) }
+pub fn h256_from(d: &[u8]) -> H256 {
+    let mut h = H256::default();
+    h.copy_from_slice(d);
+    h
+}
+pub fn h128_from(d: &[u8]) -> H128 {
+    let mut h = H128::default();
+    h.copy_from_slice(d);
+    h
 }
 
 pub fn bytes_to_hash(v: &[u8]) -> H256 {
@@ -30,18 +43,13 @@ pub trait Hasher: Sync + Send {
     fn hash(x: &[u8]) -> H256;
 }
 
-pub fn sha256(data: &[u8]) -> H256 {
-    let v = Sha256::digest(data);
-    H256::from(v)
-}
+pub fn sha256(data: &[u8]) -> H256 { h256_from(Sha256::digest(data).as_slice()) }
 
-pub fn hmac_sha256(key: &[u8], input: &[&[u8]], auth_data: &[u8]) -> H256 {
-    let mut hmac = Hmac::<Sha256>::new_from_slice(key).unwrap();
-    for input in input {
-        hmac.update(input);
-    }
+pub fn hmac_sha256(key: &[u8], input: &[u8], auth_data: &[u8]) -> H256 {
+    let mut hmac = Hmac::<Sha256>::new_from_slice(key).expect("invalid key to hmac");
+    hmac.update(input);
     hmac.update(auth_data);
-    H256::from_slice(&*hmac.finalize().into_bytes())
+    h256_from(&hmac.finalize().into_bytes())
 }
 
 pub fn keccak(x: &[u8]) -> H256 {

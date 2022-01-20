@@ -6,7 +6,7 @@ pub const U64_LEN: usize = 8;
 /// Convert vec of u8 into a u64
 pub fn vec_to_u64_le(nums: Vec<u8>) -> Result<u64, Error> {
     if nums.len() != U64_LEN {
-        Err(Error::InvalidLength { required: U64_LEN, provided: nums.len() })
+        Err(Error::InvalidLength)
     } else {
         let mut v = [0u8; U64_LEN];
         v.copy_from_slice(&nums[..]);
