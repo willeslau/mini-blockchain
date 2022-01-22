@@ -21,11 +21,14 @@ pub trait Frame: Sized {
 
 /// This represents a connection to a peer
 pub struct Connection {
-    /// The socket containter
+    /// The socket container.
     socket: TcpStream,
     /// The buffer for reading frames.
     buffer: BytesMut,
     registered: AtomicBool,
+    /// The expected data size for reading.
+    /// If None then not check, else check received size.
+    rec_size: Option<usize>
 }
 
 impl Connection {
@@ -33,7 +36,8 @@ impl Connection {
         Self {
             socket: stream,
             buffer: BytesMut::with_capacity(BUFFER_CAPACITY),
-            registered: AtomicBool::new(false)
+            registered: AtomicBool::new(false),
+            rec_size: None
         }
     }
     //
@@ -101,6 +105,11 @@ impl Connection {
             Ok(_) => Ok(()),
             Err(err) => return Err(err.into()),
         }
+    }
+
+    /// Set the expected payload when data is received after write
+    pub fn expect(&mut self, size: usize) {
+        self.rec_size = Some(size);
     }
 }
 

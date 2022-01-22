@@ -8,6 +8,7 @@
 
 //! Functions for ECIES scheme encryption and decryption
 use std::borrow::Borrow;
+use subtle::ConstantTimeEq;
 use aes::Aes128Ctr;
 use aes::cipher::{NewCipher, StreamCipher};
 use aes::cipher::errors::InvalidLength;
@@ -28,15 +29,15 @@ pub fn encrypt(public: &Public, auth_data: &[u8], plain: &[u8]) -> Result<Vec<u8
 	let mut key = [0u8; 32];
 	kdf(&z, &[0u8; 0], &mut key);
 
-	let ekey = h128_from(&key[0..16]);
-	let mkey = sha256(&key[16..32]);
+	let ekey = h128_from(&key[0..16]); // for encryption
+	let mkey = sha256(&key[16..32]); // for signature
 
 	// 1: ENC_VERSION, 1-65: Public key, 65-81: iv, 81-..: plain data, rest is hmac signature
 	let mut msg = vec![0u8; secp256k1::constants::UNCOMPRESSED_PUBLIC_KEY_SIZE + 16 + plain.len() + 32];
 	let iv = random_h128();
 
 	msg[0] = ENC_VERSION;
-	msg[1..65].copy_from_slice(public.as_ref());
+	msg[1..65].copy_from_slice(r.public().as_ref());
 	msg[65..81].copy_from_slice(&iv);
 	msg[81..plain.len()+81].copy_from_slice(plain);
 
@@ -55,44 +56,46 @@ pub fn encrypt(public: &Public, auth_data: &[u8], plain: &[u8]) -> Result<Vec<u8
 	Ok(msg)
 }
 
-// /// Decrypt a message with a secret key, checking HMAC for ciphertext
-// /// and authenticated data validity.
-// pub fn decrypt(secret: &Secret, auth_data: &[u8], encrypted: &[u8]) -> Result<Vec<u8>, Error> {
-// 	const META_LEN: usize = 1 + 64 + 16 + 32;
-// 	let enc_version = encrypted[0];
-// 	if encrypted.len() < META_LEN || enc_version < 2 || enc_version > 4 {
-// 		return Err(Error::InvalidMessage);
-// 	}
-//
-// 	let e = &encrypted[1..];
-// 	let p = Public::from_slice(&e[0..64]);
-// 	let z = ecdh::agree(secret, &p)?;
-// 	let mut key = [0u8; 32];
-// 	kdf(&z, &[0u8; 0], &mut key);
-//
-// 	let ekey = &key[0..16];
-// 	let mkey = hmac::SigKey::sha256(&digest::sha256(&key[16..32]));
-//
-// 	let cipher_text_len = encrypted.len() - META_LEN;
-// 	let cipher_with_iv = &e[64..(64 + 16 + cipher_text_len)];
-// 	let cipher_iv = &cipher_with_iv[0..16];
-// 	let cipher_no_iv = &cipher_with_iv[16..];
-// 	let msg_mac = &e[(64 + 16 + cipher_text_len)..];
-//
-// 	// Verify tag
-// 	let mut hmac = hmac::Signer::with(&mkey);
-// 	hmac.update(cipher_with_iv);
-// 	hmac.update(auth_data);
-// 	let mac = hmac.sign();
-//
-// 	if !is_equal(&mac.as_ref()[..], msg_mac) {
-// 		return Err(Error::InvalidMessage);
-// 	}
-//
-// 	let mut msg = vec![0u8; cipher_text_len];
-// 	aes::decrypt_128_ctr(ekey, cipher_iv, cipher_no_iv, &mut msg[..])?;
-// 	Ok(msg)
-// }
+/// Decrypt a message with a secret key, checking HMAC for ciphertext
+/// and authenticated data validity.
+pub fn decrypt(secret: &Secret, auth_data: &[u8], encrypted: &[u8]) -> Result<Vec<u8>, Error> {
+	const META_LEN: usize = 1 + 64 + 16 + 32;
+	let enc_version = encrypted[0];
+	if encrypted.len() < META_LEN || enc_version < 2 || enc_version > 4 {
+		return Err(Error::InvalidMessage);
+	}
+
+	let e = &encrypted[1..];
+	let p = Public::from_slice(&e[0..64]);
+	let z = ecdh::agree(secret, &p)?;
+	let mut key = [0u8; 32];
+	kdf(&z, &[0u8; 0], &mut key);
+
+	let ekey = &key[0..16];
+	let mkey = sha256(&key[16..32]);
+
+	let cipher_text_len = encrypted.len() - META_LEN;
+	let cipher_with_iv = &e[64..(64 + 16 + cipher_text_len)];
+	let cipher_iv = &cipher_with_iv[0..16];
+	let cipher_enc_text = &cipher_with_iv[16..];
+	let msg_mac = &e[(64 + 16 + cipher_text_len)..];
+
+	// Verify tag
+	let mac = hmac_sha256(
+		&mkey,
+		cipher_with_iv,
+		auth_data,
+	);
+	if mac.ct_eq(msg_mac).unwrap_u8() == 0 {
+		return Err(Error::InvalidMessage);
+	}
+
+	let mut msg = cipher_enc_text.to_vec();
+	let mut encryptor = Aes128Ctr::new_from_slices(&ekey, &cipher_iv)?;
+	encryptor.apply_keystream(&mut msg);
+
+	Ok(msg)
+}
 
 fn kdf(secret: &Secret, s1: &[u8], dest: &mut [u8]) {
 	// SEC/ISO/Shoup specify counter size SHOULD be equivalent
@@ -142,13 +145,9 @@ mod tests {
 
 		// TODO: check encrypt implementation
 		assert_ne!(encrypted[..], message[..]);
-		assert_eq!(
-			encrypted,
-			[4, 145, 216, 176, 105, 80, 79, 75, 243, 24, 207, 144, 10, 35, 34, 135, 108, 30, 92, 208, 60, 65, 124, 63, 233, 162, 58, 213, 186, 147, 132, 80, 239, 85, 15, 106, 111, 19, 190, 227, 236, 9, 165, 23, 199, 65, 18, 136, 95, 109, 58, 16, 61, 171, 93, 160, 238, 90, 211, 43, 81, 99, 90, 181, 133, 121, 215, 62, 23, 194, 182, 117, 78, 98, 171, 12, 133, 209, 232, 4, 86, 146, 246, 190, 77, 110, 190, 195, 170, 251, 117, 93, 219, 96, 45, 179, 84, 89, 28, 211, 70, 215, 124, 166, 124, 104, 12, 47, 222, 223, 130, 160, 106, 23, 104, 219, 153, 59, 75, 197, 54, 35, 67, 139, 113, 114, 181, 54, 46, 138, 134, 97, 240, 171, 193, 179, 92, 205, 162, 138, 108, 200]
-		);
 
-		// assert!(ecies::decrypt(kp.secret(), wrong_shared, &encrypted).is_err());
-		// let decrypted = ecies::decrypt(kp.secret(), shared, &encrypted).unwrap();
-		// assert_eq!(decrypted[..message.len()], message[..]);
+		assert!(ecies::decrypt(kp.secret(), wrong_shared, &encrypted).is_err());
+		let decrypted = ecies::decrypt(kp.secret(), shared, &encrypted).unwrap();
+		assert_eq!(decrypted[..message.len()], message[..]);
 	}
 }

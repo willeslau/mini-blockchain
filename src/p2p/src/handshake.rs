@@ -1,10 +1,15 @@
+use std::sync::Arc;
+use bytes::BytesMut;
 use rand::Rng;
-use common::{ecdh, H256, KeyPair, Public, Secret, sign, xor};
+use tokio::sync::RwLock;
+use common::{agree, encrypt, H256, KeyPair, Public, Secret, sign, xor};
 use rlp::RLPStream;
-use crate::connection::Connection;
-use crate::enode::NodeId;
+use crate::connection::{Bytes, Connection, Frame};
+use crate::enode::{NodeId, pubkey_to_idv4};
 use crate::error::Error;
 
+const V4_AUTH_PACKET_SIZE: usize = 307;
+const V4_ACK_PACKET_SIZE: usize = 210;
 const PROTOCOL_VERSION: u64 = 4;
 // Amount of bytes added when encrypting with encryptECIES.
 const ECIES_OVERHEAD: usize = 113;
@@ -27,12 +32,49 @@ enum HandshakeState {
 }
 
 /// The incoming frames used during the handshakes
-pub(crate) enum IngressFrame {
+pub(crate) struct IngressFrame {
+    type:
+}
 
+impl Frame for IngressFrame {
+    fn parse_frame(bytes: &mut BytesMut) -> Result<Option<Self>, Error> {
+        println!("{:?}", bytes);
+        if bytes.is_empty() { return Ok(None); }
+        Ok(Some(IngressFrame::WriteAuthResponse))
+    }
 }
 
 /// Struct to handle the handshake with other eth nodes
-pub(crate) struct Handshake {
+pub struct Handshake {
+    inner: Arc<RwLock<HandshakeInner>>,
+}
+
+impl Handshake {
+    pub fn new(remote_node_pub: Public, connection: Connection, nonce: H256) -> Self {
+        let remote_node_id = pubkey_to_idv4(&remote_node_pub);
+        let inner = HandshakeInner::new(remote_node_id, remote_node_pub, connection, nonce);
+        Self {
+            inner: Arc::new(RwLock::new(inner))
+        }
+    }
+
+    pub async fn start(&self, originate: bool) -> Result<(), Error> {
+        // TODO: register timeout check in the event loop
+        let inner = Arc::clone(&self.inner);
+        if originate {
+            tokio::spawn(async move {
+                let mut handshake = inner.write().await;
+                handshake.write_auth().await.unwrap();
+                handshake.read_auth().await.unwrap();
+            });
+        }
+
+        Ok(())
+    }
+}
+
+/// The inner structure for Handshake
+pub(crate) struct HandshakeInner {
     /// Remote node id, i.e. hash of public key
     remote_node_id: NodeId,
     /// Remote node public key
@@ -41,32 +83,33 @@ pub(crate) struct Handshake {
     key_pair: KeyPair,
     nonce: H256,
     /// Underlying connection
-    pub connection: Connection,
+    connection: Connection,
+    auth_cipher: Bytes,
+    /// A copy of received encrypted ack packet
+    ack_cipher: Bytes,
+    state: HandshakeState,
 }
-
-impl Handshake {
+impl HandshakeInner {
     pub fn new(remote_node_id: NodeId, remote_node_pub: Public, connection: Connection, nonce: H256) -> Self {
         Self {
             remote_node_id,
             remote_node_pub,
             key_pair: KeyPair::random(),
             nonce,
-            connection
+            connection,
+            auth_cipher: Default::default(),
+            ack_cipher: Default::default(),
+            state: HandshakeState::New,
         }
     }
 
-    pub fn start(&mut self, originate: bool) -> Result<(), Error> {
-        // TODO: register timeout check in the event loop
-
-        if originate {
-            self.write_auth()?
-        }
-
+    async fn read_auth(&mut self) -> Result<(), Error> {
+        self.connection.readable::<IngressFrame>().await?;
         Ok(())
     }
 
-    fn write_auth(&mut self) -> Result<(), Error>{
-        let static_shared = ecdh::agree(self.key_pair.secret(), &self.remote_node_pub)?;
+    async fn write_auth(&mut self) -> Result<(), Error>{
+        let static_shared = agree(self.key_pair.secret(), &self.remote_node_pub)?;
 
         let mut rlp = RLPStream::new_list(4);
         rlp.append(&sign(self.key_pair.secret(), &static_shared.xor(&self.nonce))?.to_vec());
@@ -74,21 +117,27 @@ impl Handshake {
         rlp.append(&self.nonce);
         rlp.append(&PROTOCOL_VERSION);
         let mut encoded = rlp.out();
-        encoded.resize(encoded.len() + rand::thread_rng().gen_range(100, 301), 0);
+
+        encoded.resize(encoded.len() + rand::thread_rng().gen_range(100..301), 0);
         let len = (encoded.len() + ECIES_OVERHEAD) as u16;
         let prefix = len.to_be_bytes();
-        let message = ecies::encrypt(&self.id, &prefix, &encoded)?;
+        let message = encrypt(&self.remote_node_pub, &prefix, &encoded)?;
+
         self.auth_cipher.extend_from_slice(&prefix);
         self.auth_cipher.extend_from_slice(&message);
-        self.connection.send(io, self.auth_cipher.clone());
+
+        self.connection.write(&self.auth_cipher).await?;
         self.connection.expect(V4_ACK_PACKET_SIZE);
+
+        self.state = HandshakeState::ReadingAck;
+
         Ok(())
     }
 }
 
 /// Helper function to perform RLP encoding on the some of the auth data
 fn rlp_encode(key_pair: &KeyPair, remote_pub: &Public, nonce: &H256, protocol: &u64) -> Vec<u8> {
-    let static_shared = ecdh::agree(key_pair.secret(), remote_pub).unwrap();
+    let static_shared = agree(key_pair.secret(), remote_pub).unwrap();
     let mut rlp = RLPStream::new_list(4);
 
     rlp.append(&sign(key_pair.secret(), &static_shared.xor(nonce)).unwrap().to_vec());
@@ -102,7 +151,7 @@ fn rlp_encode(key_pair: &KeyPair, remote_pub: &Public, nonce: &H256, protocol: &
 #[cfg(test)]
 mod tests {
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
-    use common::{ecdh, KeyPair, Public, Secret, sign};
+    use common::{ KeyPair, Public, Secret, sign};
     use rlp::RLPStream;
     use crate::handshake::{PROTOCOL_VERSION, rlp_encode};
 

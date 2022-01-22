@@ -26,6 +26,12 @@ impl Public {
         let inner = <H512>::from_hex(s)?;
         Ok(Self { inner })
     }
+
+    pub fn from_slice(s: &[u8]) -> Self {
+        let mut inner = [0u8; 64];
+        for i in 0..s.len() { inner[i] = s[i]; }
+        Self { inner }
+    }
 }
 
 impl AsRef<[u8]> for Public {

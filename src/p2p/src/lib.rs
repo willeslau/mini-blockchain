@@ -9,6 +9,9 @@ mod handshake;
 mod connection;
 mod host;
 
+pub use connection::Connection;
+pub use handshake::Handshake;
+
 #[cfg(test)]
 mod tests {
     #[test]
