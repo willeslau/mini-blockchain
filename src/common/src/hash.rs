@@ -1,5 +1,4 @@
 use hmac::{Hmac, Mac};
-use rand::Rng;
 use sha2::{Digest, Sha256};
 use tiny_keccak::{Hasher as KeccakHasherTrait, Keccak};
 use fixed_hash::construct_fixed_hash;
@@ -7,29 +6,41 @@ use fixed_hash::rustc_hex::FromHexError;
 use crate::Error;
 
 pub const HASH_LENGTH: usize = 32;
-pub type H256 = [u8; HASH_LENGTH];
 
 construct_fixed_hash! { pub struct H520(65); }
 construct_fixed_hash! { pub struct H512(64); }
+construct_fixed_hash! { pub struct H256(32); }
 construct_fixed_hash! { pub struct H128(16); }
 
-// TODO: use macro to resolve this
-pub fn random_h256() -> H256 {
-    H256::default().map(|_| rand::thread_rng().gen())
-}
-pub fn h256_from(d: &[u8]) -> H256 {
-    let mut h = H256::default();
-    h.copy_from_slice(d);
-    h
+/// Add RLP serialization support to a fixed-sized hash type created by `construct_fixed_hash!`.
+#[macro_export]
+macro_rules! impl_fixed_hash_rlp {
+	($name: ident, $size: expr) => {
+		impl rlp::Encodable for $name {
+			fn encode(&self, stream: &mut rlp::RLPStream) {
+				stream.write_iter(self.as_ref().iter().cloned());
+			}
+		}
+
+		impl rlp::Decodable for $name {
+			fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::Error> {
+				rlp.decoder().decode_value(|bytes| match bytes.len().cmp(&$size) {
+					core::cmp::Ordering::Less => Err(rlp::Error::RlpIsTooShort),
+					core::cmp::Ordering::Greater => Err(rlp::Error::RlpIsTooBig),
+					core::cmp::Ordering::Equal => {
+						let mut t = [0u8; $size];
+						t.copy_from_slice(bytes);
+						Ok($name(t))
+					}
+				})
+			}
+		}
+	}
 }
 
-pub fn bytes_to_hash(v: &[u8]) -> H256 {
-    let mut hash = H256::default();
-    for i in 0..v.len().min(HASH_LENGTH) {
-        hash[i] = v[i];
-    }
-    hash
-}
+impl_fixed_hash_rlp!(H256, 32);
+impl_fixed_hash_rlp!(H512, 64);
+
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an
@@ -42,13 +53,13 @@ pub trait Hasher: Sync + Send {
     fn hash(x: &[u8]) -> H256;
 }
 
-pub fn sha256(data: &[u8]) -> H256 { h256_from(Sha256::digest(data).as_slice()) }
+pub fn sha256(data: &[u8]) -> H256 { H256::from_slice(Sha256::digest(data).as_slice()) }
 
-pub fn hmac_sha256(key: &[u8], input: &[u8], auth_data: &[u8]) -> H256 {
-    let mut hmac = Hmac::<Sha256>::new_from_slice(key).expect("invalid key to hmac");
+pub fn hmac_sha256(key: &H256, input: &[u8], auth_data: &[u8]) -> H256 {
+    let mut hmac = Hmac::<Sha256>::new_from_slice(key.as_bytes()).expect("invalid key to hmac");
     hmac.update(input);
     hmac.update(auth_data);
-    h256_from(&hmac.finalize().into_bytes())
+    H256::from_slice(&hmac.finalize().into_bytes())
 }
 
 pub fn keccak(x: &[u8]) -> H256 {
@@ -65,23 +76,12 @@ impl Hasher for KeccakHasher {
         keccak.update(x);
         let mut out = [0u8; 32];
         keccak.finalize(&mut out);
-        out
+        H256::from(out)
     }
 }
 
 impl From<fixed_hash::rustc_hex::FromHexError> for Error{
     fn from(e: FromHexError) -> Self {
         Error::FromHexError(e)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{random_h256};
-
-    #[test]
-    fn random_works() {
-        let r = random_h256();
-        assert_eq!(r.len(), 32);
     }
 }

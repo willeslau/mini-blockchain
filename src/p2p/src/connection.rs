@@ -1,45 +1,29 @@
-use std::io;
-use std::io::{Read, Write};
-use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use bytes::BytesMut;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter, Interest};
-use tokio::net::TcpStream;
-use tokio_util::codec::{Decoder, Encoder};
-use crate::enode::NodeId;
 use crate::error::Error;
+use bytes::BytesMut;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 const BUFFER_CAPACITY: usize = 4 * 1024;
-const DEFAULT_INTERESTS: Interest = Interest::READABLE.add(Interest::WRITABLE);
 
 pub type Bytes = Vec<u8>;
 
-/// The generic frame codec used for the connection
-pub trait FrameCodec {
-    fn parse_frame<T>(&mut self, bytes: &mut BytesMut) -> Result<Option<T>, Error>;
-}
-
 /// This represents a connection to a peer
-pub struct Connection<Codec: FrameCodec> {
+pub struct Connection {
     /// The socket container.
     socket: TcpStream,
     /// The buffer for reading frames.
     buffer: BytesMut,
-    registered: AtomicBool,
     /// The expected data size for reading.
     /// If None then not check, else check received size.
     rec_size: Option<usize>,
-    codec: Codec,
 }
 
-impl <Codec: FrameCodec> Connection<Codec> {
-    pub fn new(stream: TcpStream, codec: Codec) -> Self {
+impl Connection {
+    pub fn new(stream: TcpStream) -> Self {
         Self {
             socket: stream,
             buffer: BytesMut::with_capacity(BUFFER_CAPACITY),
-            registered: AtomicBool::new(false),
             rec_size: None,
-            codec
         }
     }
     //
@@ -83,17 +67,26 @@ impl <Codec: FrameCodec> Connection<Codec> {
     // }
 
     /// Read from the socket. Caller ensure the socket is readable
-    pub async fn readable<T>(&mut self) -> Result<Option<T>, Error>{
+    pub async fn readable(&mut self) -> Result<Option<Bytes>, Error> {
         loop {
-            if let Some(frame) = self.codec.parse_frame::<T>(&mut self.buffer)? {
-                return Ok(Some(frame));
+            if self.buffer.len() > 2 {
+                let payload_size = u16::from_be_bytes([self.buffer[0], self.buffer[1]]) as usize;
+                let total_size = payload_size + 2;
+                let o = self.buffer.split_to(total_size).to_vec();
+                self.buffer.clear();
+                return Ok(Some(o));
             }
+
+            // if self.buffer.len() >= expected_size {
+            //     return Ok(Some(std::mem::take(&mut self.buffer).to_vec()));
+            // }
+
             if 0 == self.socket.read_buf(&mut self.buffer).await? {
                 return if self.buffer.is_empty() {
                     Ok(None)
                 } else {
                     Err(Error::ConnectionResetByPeer)
-                }
+                };
             }
 
             // TODO: check max capacity

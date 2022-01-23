@@ -1,7 +1,9 @@
-use secp256k1::{PublicKey, SecretKey};
+use secp256k1::{Message, PublicKey, SecretKey};
 use secp256k1::ecdh::SharedSecret;
+use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 use crate::error::Error;
 use crate::crypto::keypair::{Public, Secret};
+use crate::{H256, H520, SECP256K1};
 
 /// Create a shared secret for message exchange.
 /// See https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange#cite_note-imperfectfs-4
@@ -19,6 +21,15 @@ pub fn agree(secret: &Secret, public: &Public) -> Result<Secret, Error> {
     Secret::import_key(&shared[0..32]).map_err(|_| Error::Secp256k1(secp256k1::Error::InvalidSecretKey))
 }
 
+/// Recovers the public key from the signature for the message
+pub fn recover(signature: &H520, message: &H256) -> Result<Public, Error> {
+    let rsig = RecoverableSignature::from_compact(&signature[0..64], RecoveryId::from_i32(signature[64] as i32)?)?;
+
+    let pubkey = &SECP256K1.recover_ecdsa(&Message::from_slice(&message[..])?, &rsig)?;
+    let serialized = pubkey.serialize_uncompressed();
+    let public = Public::from_slice(&serialized[1..65]);
+    Ok(public)
+}
 
 #[cfg(test)]
 mod tests {

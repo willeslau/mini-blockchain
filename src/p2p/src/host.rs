@@ -1,7 +1,7 @@
-use common::{H256, keccak, KeyPair, Secret};
 use crate::config::Config;
-use crate::enode::{NodeEndpoint, NodeId, pubkey_to_idv4};
+use crate::enode::{pubkey_to_idv4, NodeEndpoint, NodeId};
 use crate::protocol::CapabilityInfo;
+use common::{keccak, KeyPair, Secret, H256};
 
 /// Shared host information
 pub(crate) struct HostInfo {
@@ -23,7 +23,7 @@ pub(crate) struct HostInfo {
 
 impl HostInfo {
     fn next_nonce(&mut self) -> H256 {
-        self.nonce = keccak(&self.nonce);
+        self.nonce = keccak(self.nonce.as_bytes());
         self.nonce
     }
 

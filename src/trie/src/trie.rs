@@ -388,7 +388,7 @@ impl<'a, H: DBStorage> Trie<'a, H> {
         let node_loc = self.root_loc();
         let h = match node_loc {
             NodeLocation::None => H256::default(),
-            NodeLocation::Persistence(h) => h,
+            NodeLocation::Persistence(h) => H256::from(h),
             NodeLocation::Memory(x) => {
                 match self.cache.take(x) {
                     MemorySlot::Updated(node) => {
@@ -405,7 +405,7 @@ impl<'a, H: DBStorage> Trie<'a, H> {
 
     fn extract_cache_index(&mut self, node_loc: &NodeLocation) -> Result<CacheIndex, Error> {
         match node_loc {
-            NodeLocation::Persistence(h) => Ok(self.load_to_cache(h)),
+            NodeLocation::Persistence(h) => Ok(self.load_to_cache(&H256::from_slice(h))),
             NodeLocation::Memory(i) => Ok(*i),
             _ => Err(Error::InvalidNodeLocation),
         }
@@ -439,7 +439,7 @@ impl<'a, H: DBStorage> Trie<'a, H> {
     }
 
     fn load_to_cache(&mut self, h: &H256) -> CacheIndex {
-        let node = match self.db.get(h) {
+        let node = match self.db.get(h.as_bytes()) {
             None => Node::Empty,
             Some(bytes) => Node::from(bytes),
         };
@@ -459,6 +459,7 @@ impl<'a, H: DBStorage> Trie<'a, H> {
 
 #[cfg(test)]
 mod tests {
+    use common::H256;
     use crate::storage::NodeLocation;
     use crate::trie::Trie;
     use kv_storage::MemoryDB;
@@ -521,7 +522,7 @@ mod tests {
         assert_eq!(trie.try_get(b"fooks"), None);
 
         let out = trie.commit().unwrap();
-        assert_eq!(out, TEST_HASH);
+        assert_eq!(out, H256::from(TEST_HASH));
     }
 
     #[test]
@@ -552,6 +553,6 @@ mod tests {
         assert_eq!(trie.try_get(b"fook"), Some(b"barr".to_vec()));
         trie.try_update(b"fooo", b"bar").unwrap();
         let out = trie.commit().unwrap();
-        assert_eq!(out, TEST_HASH);
+        assert_eq!(out, H256::from(TEST_HASH));
     }
 }

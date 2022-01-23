@@ -184,7 +184,7 @@ mod tests {
 
         let mut data = vec![];
         to_binary(260454, &mut data);
-        assert_eq!(data, vec![0x1, 0x4]);
+        assert_eq!(data, vec![3, 249, 102]);
     }
 
     #[test]

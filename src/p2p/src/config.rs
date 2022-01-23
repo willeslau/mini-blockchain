@@ -1,5 +1,5 @@
+use common::{KeyPair, Public};
 use std::net::SocketAddr;
-use common::{Public, KeyPair};
 
 /// Network service configuration
 #[derive(Clone, Debug)]

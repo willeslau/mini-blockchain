@@ -33,7 +33,7 @@ impl NodeHasher {
             Node::Empty => ChildReference::Hash(H256::default()),
             Node::Full { children } => self.hash_full_node_children(children, db, cache),
             Node::Short { key, val: node_loc } => {
-                let nd = self.take_node_loc(node_loc, cache);
+                let nd = self.take_node_loc(&node_loc, cache);
                 self.hash_short_node_children(key, db, nd, cache)
             }
             // Should not process this type as Short node branch should have handled it.
@@ -43,10 +43,10 @@ impl NodeHasher {
         }
     }
 
-    fn take_node_loc(&mut self, node_loc: NodeLocation, cache: &mut Cache) -> NodeData {
+    fn take_node_loc(&mut self, node_loc: &NodeLocation, cache: &mut Cache) -> NodeData {
         match node_loc {
-            NodeLocation::Persistence(h) => NodeData::Hash(h),
-            NodeLocation::Memory(i) => match cache.take(i) {
+            NodeLocation::Persistence(h) => NodeData::Hash(H256::from_slice(h)),
+            NodeLocation::Memory(i) => match cache.take(*i) {
                 MemorySlot::Updated(node) => NodeData::Node(node),
                 MemorySlot::Loaded(h, _) => NodeData::Hash(h),
             },
@@ -83,7 +83,7 @@ impl NodeHasher {
     ) -> ChildReference {
         let mut refs = Vec::with_capacity(CHILD_SIZE);
         for i in 0..CHILD_SIZE - 1 {
-            let c = children[i];
+            let c = &children[i];
             match self.take_node_loc(c, cache) {
                 NodeData::Hash(h) => refs.push(Some(ChildReference::Hash(h))),
                 NodeData::Node(node) => match node {
@@ -96,7 +96,7 @@ impl NodeHasher {
         }
 
         // process the 17th element, the terminal
-        let tm = children[CHILD_SIZE - 1];
+        let tm = &children[CHILD_SIZE - 1];
         match self.take_node_loc(tm, cache) {
             NodeData::Hash(h) => refs.push(Some(ChildReference::Hash(h))),
             NodeData::Node(node) => match node {
@@ -119,7 +119,7 @@ impl NodeHasher {
 
     fn insert_db_raw<H: DBStorage>(&mut self, encoded: Vec<u8>, db: &mut H) -> H256 {
         let hash = KeccakHasher::hash(&encoded);
-        db.insert(Vec::from(hash), encoded);
+        db.insert(Vec::from(hash.as_bytes()), encoded);
         self.hash_count += 1;
         hash
     }

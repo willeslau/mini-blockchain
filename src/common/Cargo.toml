@@ -10,6 +10,7 @@ default = ["std"]
 std = ["serde/std", "bincode", "secp256k1/recovery"]
 
 [dependencies]
+rlp = { path = "../rlp" }
 aes = { version = "0.7.5", features = ["ctr"] }
 serde = { version = "1.0.132", optional = true, features = ["derive"] }
 bincode = { version = "1.3.3", optional = true }
@@ -21,6 +22,5 @@ sha2 = "0.10.1"
 sha3 = "0.10.0"
 hmac = "0.12.0"
 rand = "0.8.4"
-subtle = "2.4.1"
 fixed-hash = "0.7.0"
 tiny-keccak = { version = "2.0.2", features = ["keccak"] }

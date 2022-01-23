@@ -1,10 +1,8 @@
-use std::cell::RefCell;
-use std::fmt::Error;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicBool;
 use crate::config::Config;
-use crate::enode::{DB, LocalNode};
+use crate::enode::{LocalNode, DB};
+use std::fmt::Error;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 // use crate::peer::{BASE_PROTOCOL_VERSION, ProtoHandshake};
 use crate::protocol::Protocol;
 
@@ -25,7 +23,7 @@ impl NetworkService {
         // let proto_handshake = ProtoHandshake::new(BASE_PROTOCOL_VERSION, self.name.clone(), public_key);
         // proto_handshake.
 
-        let mut db = if config.node_db.is_empty() {
+        let db = if config.node_db.is_empty() {
             DB::new_memory_db()
         } else {
             panic!("not implemented");

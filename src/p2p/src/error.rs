@@ -4,8 +4,9 @@ pub enum Error {
     StdError(std::io::Error),
     NotImplemented,
 
-    // ======== Common Package Error========
+    // ======== External Package Error========
     CommonError(common::Error),
+    RlpError(rlp::Error),
 
     // =========== Socket Related ==========
     SocketNotReady,
@@ -18,10 +19,17 @@ pub enum Error {
 
     // =========== Handshake Related ==========
     BadProtocol,
+    ExpectedReceivedSizeNotSet,
 }
 
 impl From<common::Error> for Error {
     fn from(e: common::Error) -> Self {
         Error::CommonError(e)
+    }
+}
+
+impl From<rlp::Error> for Error {
+    fn from(e: rlp::Error) -> Self {
+        Error::RlpError(e)
     }
 }

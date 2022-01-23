@@ -89,7 +89,7 @@ mod tests {
         let r = key_bytes_to_hex(&key);
         assert_eq!(r, vec![1, 2, 3, 4, 5, 6, 0, 7, 16]);
 
-        println!("{:?}", key_bytes_to_hex(b"foo"))
+        // println!("{:?}", key_bytes_to_hex(b"foo"))
     }
 
     #[test]

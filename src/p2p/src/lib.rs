@@ -1,13 +1,15 @@
+#![feature(exclusive_range_pattern)]
+
 mod config;
-mod service;
-mod peer;
-mod protocol;
+mod connection;
 mod enode;
 mod error;
-mod nat;
 mod handshake;
-mod connection;
 mod host;
+mod nat;
+mod peer;
+mod protocol;
+mod service;
 
 pub use connection::Connection;
 pub use handshake::Handshake;

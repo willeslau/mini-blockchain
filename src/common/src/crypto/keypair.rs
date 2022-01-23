@@ -1,16 +1,16 @@
 //! Secret key implementation.
 
 use std::str::FromStr;
-use hex::{FromHex, FromHexError, ToHex};
+use hex::{FromHexError, ToHex};
 use secp256k1::constants::SECRET_KEY_SIZE as SECP256K1_SECRET_KEY_SIZE;
 use secp256k1::{Message, PublicKey, SecretKey};
 // Why do we need this? http://www.daemonology.net/blog/2014-09-04-how-to-zero-a-buffer.html
 use zeroize::Zeroize;
 use crate::error::Error;
-use crate::{H256, H512, HASH_LENGTH, xor};
+use crate::{H256, H512, SECP256K1};
 
-use lazy_static::lazy_static;
 use secp256k1::rand::rngs::OsRng;
+use rlp::Rlp;
 
 // pub type Public = H512;
 #[derive(Debug, PartialEq, Clone)]
@@ -51,8 +51,16 @@ impl Default for Public {
     }
 }
 
-lazy_static! {
-	static ref SECP256K1: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
+impl rlp::Encodable for Public {
+    fn encode(&self, stream: &mut rlp::RLPStream) {
+        stream.write_iter(self.as_ref().iter().cloned())
+    }
+}
+impl rlp::Decodable for Public {
+    fn decode(rlp: &Rlp) -> Result<Self, rlp::Error> {
+        let inner = H512::decode(rlp)?;
+        Ok(Public{ inner })
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -86,12 +94,12 @@ impl KeyPair {
 /// Represents secret key
 #[derive(Debug, PartialEq, Clone)]
 pub struct Secret {
-    inner: Box<H256>,
+    inner: H256,
 }
 
 impl Drop for Secret {
     fn drop(&mut self) {
-        self.inner.zeroize()
+        self.inner.as_bytes_mut().zeroize()
     }
 }
 
@@ -102,9 +110,7 @@ impl Secret {
         if key.len() != 32 {
             return None;
         }
-        let mut h = [0u8; HASH_LENGTH];
-        h.copy_from_slice(&key[0..32]);
-        Some(Secret { inner: Box::new(h) })
+        Some(Secret { inner: H256::from_slice(&key[0..32]) })
     }
 
     /// Creates a `Secret` from the given `str` representation,
@@ -112,13 +118,12 @@ impl Secret {
     /// the secret.
     /// Caller is responsible to zeroize input slice.
     pub fn copy_from_str(s: &str) -> Result<Self, Error> {
-        let h = <H256>::from_hex(s)?;
-        Ok(Secret { inner: Box::new(h) })
+        Ok(Secret { inner: H256::from_str(s)? })
     }
 
     /// Creates zero key, which is invalid for crypto operations, but valid for math operation.
     pub fn zero() -> Self {
-        Secret { inner: Box::new([0u8; HASH_LENGTH]) }
+        Secret { inner: H256::zero() }
     }
 
     /// Imports and validates the key.
@@ -135,15 +140,11 @@ impl Secret {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        self.inner.as_ref()
+        self.inner.as_bytes()
     }
 
     pub fn to_hex(&self) -> String {
         self.inner.encode_hex::<String>()
-    }
-
-    pub fn xor(&self, other: &H256) -> H256 {
-        xor(self.inner.as_ref(), other)
     }
 }
 
@@ -153,10 +154,16 @@ impl AsRef<[u8]> for Secret {
     }
 }
 
+impl AsRef<H256> for Secret {
+    fn as_ref(&self) -> &H256 {
+        &self.inner
+    }
+}
+
 impl From<[u8; 32]> for Secret {
     #[inline(always)]
     fn from(mut k: [u8; 32]) -> Self {
-        let result = Secret { inner: Box::new(k) };
+        let result = Secret { inner: H256::from_slice(&k) };
         k.zeroize();
         result
     }
@@ -218,14 +225,14 @@ pub fn sign(secret: &Secret, message: &H256) -> Result<[u8;65], Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Secret, sign};
+    use crate::{H256, Secret, sign};
 
     #[test]
     fn test_sign() {
         // Just some random values for secret/public to check we agree with previous implementation.
         let secret =
             Secret::copy_from_str(&"b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291").unwrap();
-        let message = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        let message = H256::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
         let s = sign(&secret, &message).unwrap();
         assert_eq!(s, [182, 182, 244, 193, 65, 89, 128, 178, 40, 121, 127, 32, 179, 105, 30, 133, 208, 112, 255, 162, 45, 171, 138, 47, 71, 75, 182, 177, 36, 223, 7, 174, 101, 191, 217, 45, 254, 26, 10, 67, 76, 22, 29, 43, 57, 71, 4, 67, 127, 138, 165, 169, 203, 93, 61, 18, 76, 208, 229, 96, 14, 85, 252, 29, 0]);
     }
@@ -235,10 +242,10 @@ mod tests {
         // Just some random values for secret/public to check we agree with previous implementation.
         let secret =
             Secret::copy_from_str(&"01a400760945613ff6a46383b250bf27493bfe679f05274916182776f09b28f1").unwrap();
-        let h = [56, 242, 184, 93, 221, 158, 68, 46, 153, 138, 12, 152, 135, 63, 27, 151, 136, 30, 18, 171, 49, 150, 97, 219, 68, 55, 148, 72, 124, 63, 140, 230];
+        let h = H256::from([56, 242, 184, 93, 221, 158, 68, 46, 153, 138, 12, 152, 135, 63, 27, 151, 136, 30, 18, 171, 49, 150, 97, 219, 68, 55, 148, 72, 124, 63, 140, 230]);
         assert_eq!(
-            secret.xor(&h),
-            [57, 86, 184, 43, 212, 219, 37, 17, 111, 46, 111, 27, 53, 111, 164, 176, 193, 37, 236, 204, 174, 147, 70, 146, 82, 47, 179, 62, 140, 164, 164, 23]
+            secret.as_ref() ^ &h,
+            H256::from([57, 86, 184, 43, 212, 219, 37, 17, 111, 46, 111, 27, 53, 111, 164, 176, 193, 37, 236, 204, 174, 147, 70, 146, 82, 47, 179, 62, 140, 164, 164, 23])
         );
     }
 

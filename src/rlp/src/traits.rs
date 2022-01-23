@@ -1,4 +1,6 @@
+use crate::Error;
 use crate::rlp::RLPStream;
+use crate::rlpin::Rlp;
 
 /// RPL encodable trait. Encode Self into bytes and append to end of stream.
 pub trait Encodable {
@@ -6,6 +8,7 @@ pub trait Encodable {
 }
 
 /// RPL decodable trait. Decode from the stream to Self. Read from start of stream.
-pub trait Decodable {
-    fn decode(&self, stream: &mut RLPStream);
+pub trait Decodable: Sized {
+    /// Decode a value from RLP bytes
+    fn decode(rlp: &Rlp) -> Result<Self, Error>;
 }

@@ -1,13 +1,10 @@
-use std::cell::RefCell;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::rc::Rc;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use common::{KeyPair};
 use crate::config::Config;
-use crate::enode::DB;
 use crate::enode::node::NodeId;
 use crate::enode::url_v4::*;
+use crate::enode::DB;
+use common::KeyPair;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::sync::{Arc, Mutex};
 
 const DEFAULT_LISTEN_PORT: u16 = 30303;
 
@@ -39,7 +36,10 @@ impl LocalNode {
 
         // create endpoint
         let listen_address = match config.listen_address {
-            None => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), DEFAULT_LISTEN_PORT)),
+            None => SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::new(0, 0, 0, 0),
+                DEFAULT_LISTEN_PORT,
+            )),
             Some(addr) => addr,
         };
         let udp_port = config.udp_port.unwrap_or_else(|| listen_address.port());
@@ -52,7 +52,10 @@ impl LocalNode {
             db,
             seq,
             entries: vec![],
-            endpoint: NodeEndpoint { address: listen_address, udp_port }
+            endpoint: NodeEndpoint {
+                address: listen_address,
+                udp_port,
+            },
         };
 
         ln.invalidate();
@@ -64,11 +67,10 @@ impl LocalNode {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
     use common::KeyPair;
+    use std::str::FromStr;
 
     #[test]
     fn it_works() {

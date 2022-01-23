@@ -1,5 +1,5 @@
-use std::fmt::Error;
 use crate::peer::PeerId;
+use std::fmt::Error;
 
 pub type ProtocolId = u64;
 

@@ -6,13 +6,13 @@ use std::collections::VecDeque;
 
 pub type CacheIndex = usize;
 
-// TODO: remove Copy trait implementation here
+// TODO: remove Copy
 /// Enum indicating where the node is currently stored
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum NodeLocation {
     /// Currently in the persistence storage
-    Persistence(H256),
+    Persistence([u8; 32]),
     /// Currently in memory
     Memory(CacheIndex),
     /// Not stored anywhere

@@ -1,1 +1,3 @@
-pub type NodeId = [u8; 32];
+use common::H256;
+
+pub type NodeId = H256;

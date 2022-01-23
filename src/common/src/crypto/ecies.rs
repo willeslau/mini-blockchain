@@ -1,18 +1,9 @@
-// Copyright 2020 Parity Technologies
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
 //! Functions for ECIES scheme encryption and decryption
-use subtle::ConstantTimeEq;
 use aes::Aes128Ctr;
 use aes::cipher::{NewCipher, StreamCipher};
 use aes::cipher::errors::InvalidLength;
 use sha2::{Digest, Sha256};
-use crate::{Error, H128, hmac_sha256, KeyPair, Public, Secret, sha256};
+use crate::{Error, H128, H256, hmac_sha256, KeyPair, Public, Secret, sha256};
 use crate::crypto::ecdh;
 
 const ENC_VERSION: u8 = 0x04;
@@ -50,7 +41,7 @@ pub fn encrypt(public: &Public, auth_data: &[u8], plain: &[u8]) -> Result<Vec<u8
 		&msg[65..plain.len()+81],
 		auth_data,
 	);
-	msg[81+plain.len()..].copy_from_slice(&sig);
+	msg[81+plain.len()..].copy_from_slice(sig.as_bytes());
 
 	Ok(msg)
 }
@@ -77,7 +68,7 @@ pub fn decrypt(secret: &Secret, auth_data: &[u8], encrypted: &[u8]) -> Result<Ve
 	let cipher_with_iv = &e[64..(64 + 16 + cipher_text_len)];
 	let cipher_iv = &cipher_with_iv[0..16];
 	let cipher_enc_text = &cipher_with_iv[16..];
-	let msg_mac = &e[(64 + 16 + cipher_text_len)..];
+	let msg_mac = H256::from_slice(&e[(64 + 16 + cipher_text_len)..]);
 
 	// Verify tag
 	let mac = hmac_sha256(
@@ -85,7 +76,7 @@ pub fn decrypt(secret: &Secret, auth_data: &[u8], encrypted: &[u8]) -> Result<Ve
 		cipher_with_iv,
 		auth_data,
 	);
-	if mac.ct_eq(msg_mac).unwrap_u8() == 0 {
+	if mac != msg_mac {
 		return Err(Error::InvalidMessage);
 	}
 
