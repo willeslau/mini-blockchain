@@ -14,13 +14,13 @@ const DEFAULT_INTERESTS: Interest = Interest::READABLE.add(Interest::WRITABLE);
 
 pub type Bytes = Vec<u8>;
 
-/// The generic frame used for the connection
-pub trait Frame: Sized {
-    fn parse_frame(bytes: &mut BytesMut) -> Result<Option<Self>, Error>;
+/// The generic frame codec used for the connection
+pub trait FrameCodec {
+    fn parse_frame<T>(&mut self, bytes: &mut BytesMut) -> Result<Option<T>, Error>;
 }
 
 /// This represents a connection to a peer
-pub struct Connection {
+pub struct Connection<Codec: FrameCodec> {
     /// The socket container.
     socket: TcpStream,
     /// The buffer for reading frames.
@@ -28,16 +28,18 @@ pub struct Connection {
     registered: AtomicBool,
     /// The expected data size for reading.
     /// If None then not check, else check received size.
-    rec_size: Option<usize>
+    rec_size: Option<usize>,
+    codec: Codec,
 }
 
-impl Connection {
-    pub fn new(stream: TcpStream) -> Self {
+impl <Codec: FrameCodec> Connection<Codec> {
+    pub fn new(stream: TcpStream, codec: Codec) -> Self {
         Self {
             socket: stream,
             buffer: BytesMut::with_capacity(BUFFER_CAPACITY),
             registered: AtomicBool::new(false),
-            rec_size: None
+            rec_size: None,
+            codec
         }
     }
     //
@@ -81,9 +83,9 @@ impl Connection {
     // }
 
     /// Read from the socket. Caller ensure the socket is readable
-    pub async fn readable<F: Frame>(&mut self) -> Result<Option<F>, Error>{
+    pub async fn readable<T>(&mut self) -> Result<Option<T>, Error>{
         loop {
-            if let Some(frame) = F::parse_frame(&mut self.buffer)? {
+            if let Some(frame) = self.codec.parse_frame::<T>(&mut self.buffer)? {
                 return Ok(Some(frame));
             }
             if 0 == self.socket.read_buf(&mut self.buffer).await? {

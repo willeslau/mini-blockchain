@@ -1,5 +1,6 @@
 //! Secret key implementation.
 
+use std::str::FromStr;
 use hex::{FromHex, FromHexError, ToHex};
 use secp256k1::constants::SECRET_KEY_SIZE as SECP256K1_SECRET_KEY_SIZE;
 use secp256k1::{Message, PublicKey, SecretKey};
@@ -19,18 +20,16 @@ pub struct Public {
 
 impl Public {
     pub fn copy_from_slice(&mut self, data: &[u8]) {
-        self.inner.copy_from_slice(data);
+        self.inner.as_bytes_mut().copy_from_slice(data);
     }
 
     pub fn from_str(s: &str) -> Result<Self, Error> {
-        let inner = <H512>::from_hex(s)?;
+        let inner = H512::from_str(s)?;
         Ok(Self { inner })
     }
 
     pub fn from_slice(s: &[u8]) -> Self {
-        let mut inner = [0u8; 64];
-        for i in 0..s.len() { inner[i] = s[i]; }
-        Self { inner }
+        Self { inner: H512::from_slice(s) }
     }
 }
 
@@ -48,7 +47,7 @@ impl From<FromHexError> for Error{
 
 impl Default for Public {
     fn default() -> Self {
-        Self { inner: [0u8; 64] }
+        Self { inner: H512::default() }
     }
 }
 
@@ -72,11 +71,7 @@ impl KeyPair {
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
         let public_key = PublicKey::from_secret_key(&SECP256K1, &secret_key);
         let serialized = public_key.serialize_uncompressed();
-
-        let mut public = Public::default();
-        public.copy_from_slice(&serialized[1..65]);
-
-        Self { secret: Secret::from(secret_key), public }
+        Self { secret: Secret::from(secret_key), public: Public::from_slice(&serialized[1..65]) }
     }
 
     pub fn public(&self) -> &Public {
@@ -223,7 +218,7 @@ pub fn sign(secret: &Secret, message: &H256) -> Result<[u8;65], Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Public, Secret, sign};
+    use crate::{Secret, sign};
 
     #[test]
     fn test_sign() {

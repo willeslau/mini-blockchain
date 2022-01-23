@@ -1,10 +1,11 @@
 use std::sync::Arc;
 use bytes::BytesMut;
 use rand::Rng;
+use tokio::net::TcpStream;
 use tokio::sync::RwLock;
-use common::{agree, encrypt, H256, KeyPair, Public, Secret, sign, xor};
+use common::{agree, decrypt, encrypt, H256, KeyPair, Public, Secret, sign, xor};
 use rlp::RLPStream;
-use crate::connection::{Bytes, Connection, Frame};
+use crate::connection::{Bytes, Connection, FrameCodec};
 use crate::enode::{NodeId, pubkey_to_idv4};
 use crate::error::Error;
 
@@ -31,39 +32,79 @@ enum HandshakeState {
     StartSession,
 }
 
-/// The incoming frames used during the handshakes
-pub(crate) struct IngressFrame {
-    type:
+/// The codec that converts bytes to IngressFrame
+struct IngressFrameCodec<'a> {
+    inner: Arc<&'a HandshakeInner>,
 }
 
-impl Frame for IngressFrame {
-    fn parse_frame(bytes: &mut BytesMut) -> Result<Option<Self>, Error> {
-        println!("{:?}", bytes);
-        if bytes.is_empty() { return Ok(None); }
-        Ok(Some(IngressFrame::WriteAuthResponse))
+impl FrameCodec for IngressFrameCodec {
+    fn parse_frame<T>(&mut self, bytes: &mut BytesMut) -> Result<Option<T>, Error> {
+        match self.inner.state {
+            HandshakeState::New => Ok(None),
+            HandshakeState::ReadingAck => self.read_auth(bytes),
+
+            // TODO: handle these states
+            HandshakeState::ReadingAuth => Ok(None),
+            HandshakeState::ReadingAuthEip8 => Ok(None),
+            HandshakeState::ReadingAckEip8 => Ok(None),
+            HandshakeState::StartSession => Ok(None),
+        }
     }
+}
+
+impl <'a> IngressFrameCodec<'a> {
+    fn read_auth(&mut self, bytes: &mut BytesMut) -> Result<Option<IngressFrame<'a>>, Error> {
+        log::info!("parsing reading auth from remote: {:?}", self.inner.remote_node_pub);
+        if bytes.len() != V4_AUTH_PACKET_SIZE {
+            log::debug!("Wrong auth packet size, actual: {:}", bytes.len());
+            return Err(Error::BadProtocol);
+        }
+        self.inner.auth_cipher = bytes.to_vec();
+        match decrypt(self.inner.key_pair.secret(), &[], bytes) {
+            Ok(auth) => {
+                let (sig, rest) = auth.split_at(65);
+                let (_, rest) = rest.split_at(32);
+                let (pubk, rest) = rest.split_at(64);
+                let (nonce, _) = rest.split_at(32);
+
+                // self.set_auth(secret, sig, pubk, nonce, PROTOCOL_VERSION)?;
+                // self.write_ack(io)?;
+
+                Ok(Some(IngressFrame::AuthAck {sig, pubk, nonce}))
+            }
+            Err(_) => {
+                // TODO: Try to interpret as EIP-8 packet
+                Err(Error::NotImplemented)
+            }
+        }
+    }
+}
+
+/// The incoming frames used during the handshakes
+enum IngressFrame<'a> {
+    AuthAck{ sig: &'a [u8], pubk: &'a [u8], nonce: &'a [u8]},
 }
 
 /// Struct to handle the handshake with other eth nodes
 pub struct Handshake {
-    inner: Arc<RwLock<HandshakeInner>>,
+    inner: Arc<HandshakeInner>,
 }
 
 impl Handshake {
-    pub fn new(remote_node_pub: Public, connection: Connection, nonce: H256) -> Self {
+    pub fn new(remote_node_pub: Public, stream: TcpStream, nonce: H256) -> Self {
+
         let remote_node_id = pubkey_to_idv4(&remote_node_pub);
         let inner = HandshakeInner::new(remote_node_id, remote_node_pub, connection, nonce);
         Self {
-            inner: Arc::new(RwLock::new(inner))
+            inner: Arc::new(inner)
         }
     }
 
     pub async fn start(&self, originate: bool) -> Result<(), Error> {
         // TODO: register timeout check in the event loop
-        let inner = Arc::clone(&self.inner);
+        let mut handshake = Arc::clone(&self.inner);
         if originate {
             tokio::spawn(async move {
-                let mut handshake = inner.write().await;
                 handshake.write_auth().await.unwrap();
                 handshake.read_auth().await.unwrap();
             });
@@ -83,14 +124,15 @@ pub(crate) struct HandshakeInner {
     key_pair: KeyPair,
     nonce: H256,
     /// Underlying connection
-    connection: Connection,
+    connection: Connection<IngressFrame>,
     auth_cipher: Bytes,
     /// A copy of received encrypted ack packet
     ack_cipher: Bytes,
     state: HandshakeState,
 }
+
 impl HandshakeInner {
-    pub fn new(remote_node_id: NodeId, remote_node_pub: Public, connection: Connection, nonce: H256) -> Self {
+    pub fn new(remote_node_id: NodeId, remote_node_pub: Public, connection: Connection<IngressFrame>, nonce: H256) -> Self {
         Self {
             remote_node_id,
             remote_node_pub,

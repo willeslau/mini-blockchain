@@ -22,4 +22,5 @@ sha3 = "0.10.0"
 hmac = "0.12.0"
 rand = "0.8.4"
 subtle = "2.4.1"
+fixed-hash = "0.7.0"
 tiny-keccak = { version = "2.0.2", features = ["keccak"] }

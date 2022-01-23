@@ -7,13 +7,12 @@
 // except according to those terms.
 
 //! Functions for ECIES scheme encryption and decryption
-use std::borrow::Borrow;
 use subtle::ConstantTimeEq;
 use aes::Aes128Ctr;
 use aes::cipher::{NewCipher, StreamCipher};
 use aes::cipher::errors::InvalidLength;
 use sha2::{Digest, Sha256};
-use crate::{Error, h128_from, hmac_sha256, KeyPair, Public, random_h128, Secret, sha256};
+use crate::{Error, H128, hmac_sha256, KeyPair, Public, Secret, sha256};
 use crate::crypto::ecdh;
 
 const ENC_VERSION: u8 = 0x04;
@@ -29,20 +28,20 @@ pub fn encrypt(public: &Public, auth_data: &[u8], plain: &[u8]) -> Result<Vec<u8
 	let mut key = [0u8; 32];
 	kdf(&z, &[0u8; 0], &mut key);
 
-	let ekey = h128_from(&key[0..16]); // for encryption
+	let ekey = H128::from_slice(&key[0..16]); // for encryption
 	let mkey = sha256(&key[16..32]); // for signature
 
 	// 1: ENC_VERSION, 1-65: Public key, 65-81: iv, 81-..: plain data, rest is hmac signature
 	let mut msg = vec![0u8; secp256k1::constants::UNCOMPRESSED_PUBLIC_KEY_SIZE + 16 + plain.len() + 32];
-	let iv = random_h128();
+	let iv = H128::random();
 
 	msg[0] = ENC_VERSION;
 	msg[1..65].copy_from_slice(r.public().as_ref());
-	msg[65..81].copy_from_slice(&iv);
+	msg[65..81].copy_from_slice(iv.as_ref());
 	msg[81..plain.len()+81].copy_from_slice(plain);
 
 	// now perform encryption
-	let mut encryptor = Aes128Ctr::new_from_slices(&ekey, &iv)?;
+	let mut encryptor = Aes128Ctr::new_from_slices(ekey.as_bytes(), iv.as_ref())?;
 	encryptor.apply_keystream(&mut msg[81..81+plain.len()]);
 
 	// perform hmac_sha256

@@ -2,24 +2,23 @@ use hmac::{Hmac, Mac};
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use tiny_keccak::{Hasher as KeccakHasherTrait, Keccak};
+use fixed_hash::construct_fixed_hash;
+use fixed_hash::rustc_hex::FromHexError;
+use crate::Error;
 
 pub const HASH_LENGTH: usize = 32;
-pub type H128 = [u8; 16];
 pub type H256 = [u8; HASH_LENGTH];
-pub type H512 = [u8; 64];
+
+construct_fixed_hash! { pub struct H520(65); }
+construct_fixed_hash! { pub struct H512(64); }
+construct_fixed_hash! { pub struct H128(16); }
 
 // TODO: use macro to resolve this
 pub fn random_h256() -> H256 {
     H256::default().map(|_| rand::thread_rng().gen())
 }
-pub fn random_h128() -> H128 { H128::default().map(|_| rand::thread_rng().gen()) }
 pub fn h256_from(d: &[u8]) -> H256 {
     let mut h = H256::default();
-    h.copy_from_slice(d);
-    h
-}
-pub fn h128_from(d: &[u8]) -> H128 {
-    let mut h = H128::default();
     h.copy_from_slice(d);
     h
 }
@@ -67,6 +66,12 @@ impl Hasher for KeccakHasher {
         let mut out = [0u8; 32];
         keccak.finalize(&mut out);
         out
+    }
+}
+
+impl From<fixed_hash::rustc_hex::FromHexError> for Error{
+    fn from(e: FromHexError) -> Self {
+        Error::FromHexError(e)
     }
 }
 
