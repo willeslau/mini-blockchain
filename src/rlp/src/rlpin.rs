@@ -4,6 +4,10 @@ use crate::error::Error;
 use crate::impls::decode_usize;
 use crate::traits::Decodable;
 
+pub struct RLPDecoder {
+
+}
+
 /// rlp offset
 #[derive(Copy, Clone, Debug)]
 struct OffsetCache {

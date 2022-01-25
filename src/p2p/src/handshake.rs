@@ -177,6 +177,7 @@ impl HandshakeInner {
             },
             _ => {
                 let ack = decrypt(self.key_pair.secret(), &bytes[0..2], &bytes[2..])?;
+
                 let rlp = Rlp::new(&ack);
                 self.remote_ephemeral = rlp.val_at(0)?;
                 self.remote_nonce = rlp.val_at(1)?;
@@ -226,7 +227,7 @@ impl HandshakeInner {
 mod tests {
     use crate::handshake::{PROTOCOL_VERSION};
     use common::{sign, KeyPair, Public, Secret, H256, agree};
-    use rlp::RLPStream;
+    use rlp::{Rlp, RLPStream};
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 
@@ -289,5 +290,21 @@ mod tests {
 			d1497113d5c755e942d1\
 			");
         println!("{:?}", ack.as_bytes().len());
+    }
+
+    // use common::{sign, KeyPair, Public, Secret, H256, agree};
+    // use rlp::RLPStream;
+    // use secp256k1::{PublicKey, Secp256k1, SecretKey};
+    // use crate::Rlp;
+
+    #[test]
+    fn test_rlp_works() {
+        let v = vec![248, 100, 184, 64, 186, 92, 206, 211, 187, 200, 65, 210, 152, 97, 40, 173, 166, 44, 7, 110, 101, 42, 93, 126, 43, 3, 150, 175, 128, 227, 87, 65, 82, 51, 154, 192, 94, 220, 87, 207, 170, 2, 139, 177, 110, 193, 159, 237, 16, 78, 172, 88, 47, 112, 14, 209, 240, 176, 77, 237, 84, 17, 23, 154, 51, 108, 240, 40, 160, 215, 217, 94, 141, 43, 16, 124, 63, 11, 34, 168, 196, 53, 217, 254, 50, 126, 120, 82, 187, 77, 207, 174, 246, 105, 52, 120, 157, 101, 137, 38, 41, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let rlp = Rlp::new(&v);
+
+        let p: Public = rlp.val_at(0).unwrap();
+        let f: H256 = rlp.val_at(1).unwrap();
+        let u: u64 = rlp.val_at(2).unwrap();
     }
 }

@@ -68,13 +68,14 @@ macro_rules! impl_decodable_for_u {
 }
 
 impl_encodable_for_u!(u64);
+impl_encodable_for_u!(u8);
 impl_decodable_for_u!(u8);
 impl_decodable_for_u!(u64);
 
 
 #[cfg(test)]
 mod tests {
-    use crate::RLPStream;
+    use crate::{Decodable, Rlp, RLPStream};
 
     #[test]
     fn random_works() {
@@ -83,5 +84,27 @@ mod tests {
         // let g = [8];
         // g[0..].into()
         assert_eq!(r.out(), vec![136, 255, 255, 255, 255, 255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn xcodable_for_u8_works() {
+		let mut r = RLPStream::new();
+		r.append(&u8::MAX);
+		let o = r.out();
+
+        let r = Rlp::new(&o);
+		let u = u8::decode(&r).unwrap();
+        assert_eq!(u, u8::MAX);
+    }
+
+    #[test]
+    fn xcodable_for_u64_works() {
+		let mut r = RLPStream::new();
+		r.append(&u64::MAX);
+		let o = r.out();
+
+        let r = Rlp::new(&o);
+		let u = u64::decode(&r).unwrap();
+        assert_eq!(u, u64::MAX);
     }
 }
