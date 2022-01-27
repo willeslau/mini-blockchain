@@ -52,9 +52,9 @@ impl Handshake {
         if originate {
             tokio::spawn(async move {
                 let mut handshake = h.write().await;
-                // let mut connection = c.write().await;
                 handshake.write_auth().await.unwrap();
                 handshake.read_ack().await.unwrap();
+                println!("{:?}", handshake.state);
             });
         }
 
@@ -160,32 +160,31 @@ impl HandshakeInner {
             self.remote_node_pub
         );
 
-        let bytes = match self.connection.readable().await? {
+        // note, here we will support eip only
+        self.connection.expect(2);
+        let auth_data = match self.connection.readable().await? {
             Some(v) => v,
-            None => vec![],
+            None => return Err(Error::BadProtocol),
         };
-        log::info!("handshake ack data len received: {:?}", bytes.len());
 
-        match bytes.len() {
-            0..V4_ACK_PACKET_SIZE => Err(Error::BadProtocol),
-            V4_ACK_PACKET_SIZE => {
-                let ack = decrypt(self.key_pair.secret(), &[], &bytes)?;
-                self.remote_ephemeral = Public::from_slice(&ack[0..64]);
-                self.remote_nonce = H256::from_slice(&ack[64..(64 + 32)]);
-                self.state = HandshakeState::StartSession;
-                Ok(())
-            },
-            _ => {
-                let ack = decrypt(self.key_pair.secret(), &bytes[0..2], &bytes[2..])?;
+        let payload_size = u16::from_be_bytes([auth_data[0], auth_data[1]]) as usize;
+        self.connection.expect(payload_size);
+        let encrypted = match self.connection.readable().await? {
+            Some(v) => v,
+            None => return Err(Error::BadProtocol),
+        };
 
-                let rlp = Rlp::new(&ack);
-                self.remote_ephemeral = rlp.val_at(0)?;
-                self.remote_nonce = rlp.val_at(1)?;
-                self.remote_version = rlp.val_at(2)?;
-                self.state = HandshakeState::StartSession;
-                Ok(())
-            }
-        }
+        log::info!("handshake ack data len received: {:}", payload_size);
+
+        let ack = decrypt(self.key_pair.secret(), &auth_data, &encrypted)?;
+
+        let rlp = Rlp::new(&ack);
+        self.remote_ephemeral = rlp.val_at(0)?;
+        self.remote_nonce = rlp.val_at(1)?;
+        self.remote_version = rlp.val_at(2)?;
+        self.state = HandshakeState::StartSession;
+
+        Ok(())
     }
 
     async fn read_auth(&mut self) -> Result<(), Error> {
@@ -291,11 +290,6 @@ mod tests {
 			");
         println!("{:?}", ack.as_bytes().len());
     }
-
-    // use common::{sign, KeyPair, Public, Secret, H256, agree};
-    // use rlp::RLPStream;
-    // use secp256k1::{PublicKey, Secp256k1, SecretKey};
-    // use crate::Rlp;
 
     #[test]
     fn test_rlp_works() {

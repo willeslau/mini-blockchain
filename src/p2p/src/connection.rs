@@ -15,7 +15,7 @@ pub struct Connection {
     buffer: BytesMut,
     /// The expected data size for reading.
     /// If None then not check, else check received size.
-    rec_size: Option<usize>,
+    rec_size: usize,
 }
 
 impl Connection {
@@ -23,7 +23,7 @@ impl Connection {
         Self {
             socket: stream,
             buffer: BytesMut::with_capacity(BUFFER_CAPACITY),
-            rec_size: None,
+            rec_size: 0,
         }
     }
     //
@@ -69,17 +69,10 @@ impl Connection {
     /// Read from the socket. Caller ensure the socket is readable
     pub async fn readable(&mut self) -> Result<Option<Bytes>, Error> {
         loop {
-            if self.buffer.len() > 2 {
-                let payload_size = u16::from_be_bytes([self.buffer[0], self.buffer[1]]) as usize;
-                let total_size = payload_size + 2;
-                let o = self.buffer.split_to(total_size).to_vec();
-                self.buffer.clear();
+            if self.buffer.len() >= self.rec_size {
+                let o = self.buffer.split_to(self.rec_size).to_vec();
                 return Ok(Some(o));
             }
-
-            // if self.buffer.len() >= expected_size {
-            //     return Ok(Some(std::mem::take(&mut self.buffer).to_vec()));
-            // }
 
             if 0 == self.socket.read_buf(&mut self.buffer).await? {
                 return if self.buffer.is_empty() {
@@ -103,9 +96,7 @@ impl Connection {
     }
 
     /// Set the expected payload when data is received after write
-    pub fn expect(&mut self, size: usize) {
-        self.rec_size = Some(size);
-    }
+    pub fn expect(&mut self, size: usize) { self.rec_size = size; }
 }
 
 impl From<std::io::Error> for Error {

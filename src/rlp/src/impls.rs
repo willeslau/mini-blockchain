@@ -67,9 +67,19 @@ macro_rules! impl_decodable_for_u {
 	};
 }
 
+impl Decodable for u8 {
+    fn decode(rlp: &Rlp) -> Result<Self, Error> {
+        rlp.decoder().decode_value(|bytes| match bytes.len() {
+            1 if bytes[0] != 0 => Ok(bytes[0]),
+            0 => Ok(0),
+            1 => Err(Error::RlpInvalidIndirection),
+            _ => Err(Error::RlpIsTooBig),
+        })
+    }
+}
+
 impl_encodable_for_u!(u64);
 impl_encodable_for_u!(u8);
-impl_decodable_for_u!(u8);
 impl_decodable_for_u!(u64);
 
 
