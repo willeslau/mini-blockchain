@@ -1,15 +1,15 @@
-use crate::enode::node::NodeId;
 use common::vec_to_u64_le;
 use kv_storage::{DBStorage, MemoryDB};
+use crate::node::NodeId;
 
 const DB_LOCAL_SEQ: &str = "seq";
 const DB_LOCAL_PREFIX: &str = "local:";
 
-pub(crate) struct DB {
+pub(crate) struct Storage {
     inner: Box<dyn DBStorage>,
 }
 
-impl DB {
+impl Storage {
     pub fn new(storage: Box<dyn DBStorage>) -> Self {
         Self { inner: storage }
     }
@@ -17,6 +17,10 @@ impl DB {
     pub fn new_memory_db() -> Self {
         let inner = MemoryDB::new();
         Self::new(Box::new(inner))
+    }
+
+    pub fn store_node(&mut self) {
+
     }
 
     pub fn local_seq(&self, id: &NodeId) -> u64 {
@@ -53,28 +57,28 @@ fn local_item_key(id: &NodeId, field: &str) -> Vec<u8> {
     v
 }
 
-#[cfg(test)]
-mod tests {
-    use common::H256;
-    use crate::enode::db::local_item_key;
-    use crate::enode::DB;
-
-    #[test]
-    fn store_fetch_u64_works() {
-        let mut db = DB::new_memory_db();
-        db.store_u64(&vec![1, 2, 3], 123);
-        assert_eq!(db.fetch_u64(&vec![1, 2, 3]), 123);
-    }
-
-    #[test]
-    fn local_item_key_works() {
-        let mut bytes = [0; 32];
-        bytes[0] = b'a';
-        bytes[1] = b'b';
-        bytes[2] = b'c';
-        assert_eq!(
-            hex::encode(local_item_key(&H256::from(bytes), "seq")),
-            "6c6f63616c3a61626300000000000000000000000000000000000000000000000000000000003a736571"
-        );
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use common::H256;
+//     use crate::db::local_item_key;
+//     use crate::enode::DB;
+//
+//     #[test]
+//     fn store_fetch_u64_works() {
+//         let mut db = DB::new_memory_db();
+//         db.store_u64(&vec![1, 2, 3], 123);
+//         assert_eq!(db.fetch_u64(&vec![1, 2, 3]), 123);
+//     }
+//
+//     #[test]
+//     fn local_item_key_works() {
+//         let mut bytes = [0; 32];
+//         bytes[0] = b'a';
+//         bytes[1] = b'b';
+//         bytes[2] = b'c';
+//         assert_eq!(
+//             hex::encode(local_item_key(&H256::from(bytes), "seq")),
+//             "6c6f63616c3a61626300000000000000000000000000000000000000000000000000000000003a736571"
+//         );
+//     }
+// }

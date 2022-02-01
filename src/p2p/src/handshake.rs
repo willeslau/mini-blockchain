@@ -1,11 +1,11 @@
 use crate::connection::{Bytes, Connection};
-use crate::enode::{pubkey_to_idv4, NodeId};
 use crate::error::Error;
 use common::{agree, decrypt, encrypt, sign, KeyPair, Public, H256, H520, recover};
 use rand::Rng;
 use rlp::{Rlp, RLPStream};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use crate::node::{NodeId};
 
 const V4_AUTH_PACKET_SIZE: usize = 307;
 // const V4_ACK_PACKET_SIZE: usize = 210;
@@ -38,8 +38,7 @@ pub struct Handshake {
 
 impl Handshake {
     pub fn new(remote_node_pub: Public, connection: Connection, nonce: H256) -> Self {
-        let remote_node_id = pubkey_to_idv4(&remote_node_pub);
-        let inner = HandshakeInner::new(remote_node_id, remote_node_pub, nonce, connection);
+        let inner = HandshakeInner::new(remote_node_pub, nonce, connection);
 
         Self {
             inner: Arc::new(RwLock::new(inner))
@@ -64,8 +63,6 @@ impl Handshake {
 
 /// The inner structure for Handshake
 pub(crate) struct HandshakeInner {
-    /// Remote node id, i.e. hash of public key
-    remote_node_id: NodeId,
     /// Remote node public key
     remote_node_pub: Public,
     /// Local node key pair
@@ -86,13 +83,11 @@ pub(crate) struct HandshakeInner {
 
 impl HandshakeInner {
     pub fn new(
-        remote_node_id: NodeId,
         remote_node_pub: Public,
         nonce: H256,
         connection: Connection,
     ) -> Self {
         Self {
-            remote_node_id,
             remote_node_pub,
             key_pair: KeyPair::random(),
             nonce,
@@ -132,7 +127,6 @@ impl HandshakeInner {
 
     fn update_remote_id(&mut self, public: Public) {
         self.remote_node_pub = public;
-        self.remote_node_id = pubkey_to_idv4(&self.remote_node_pub);
     }
 
     fn update_auth_meta(
@@ -187,39 +181,39 @@ impl HandshakeInner {
         Ok(())
     }
 
-    async fn read_auth(&mut self) -> Result<(), Error> {
-        log::info!(
-            "parsing reading auth from remote: {:?}",
-            self.remote_node_pub
-        );
-
-        let bytes = match self.connection.readable().await? {
-            Some(v) => v,
-            None => vec![],
-        };
-        if bytes.len() != V4_AUTH_PACKET_SIZE {
-            log::debug!("Wrong auth packet size, actual: {:}", bytes.len());
-            return Err(Error::BadProtocol);
-        }
-        log::info!("data received: {:?}", bytes);
-
-        self.auth_cipher = bytes;
-
-        match decrypt(self.key_pair.secret(), &[], &self.auth_cipher) {
-            Ok(auth) => {
-                let (sig, rest) = auth.split_at(65);
-                let (_, rest) = rest.split_at(32);
-                let (pubk, rest) = rest.split_at(64);
-                let (nonce, _) = rest.split_at(32);
-                self.update_auth_meta(sig,pubk, nonce, PROTOCOL_VERSION)?;
-                Ok(())
-            }
-            Err(_) => {
-                // TODO: Try to interpret as EIP-8 packet
-                Err(Error::NotImplemented)
-            }
-        }
-    }
+    // async fn read_auth(&mut self) -> Result<(), Error> {
+    //     log::info!(
+    //         "parsing reading auth from remote: {:?}",
+    //         self.remote_node_pub
+    //     );
+    //
+    //     let bytes = match self.connection.readable().await? {
+    //         Some(v) => v,
+    //         None => vec![],
+    //     };
+    //     if bytes.len() != V4_AUTH_PACKET_SIZE {
+    //         log::debug!("Wrong auth packet size, actual: {:}", bytes.len());
+    //         return Err(Error::BadProtocol);
+    //     }
+    //     log::info!("data received: {:?}", bytes);
+    //
+    //     self.auth_cipher = bytes;
+    //
+    //     match decrypt(self.key_pair.secret(), &[], &self.auth_cipher) {
+    //         Ok(auth) => {
+    //             let (sig, rest) = auth.split_at(65);
+    //             let (_, rest) = rest.split_at(32);
+    //             let (pubk, rest) = rest.split_at(64);
+    //             let (nonce, _) = rest.split_at(32);
+    //             self.update_auth_meta(sig,pubk, nonce, PROTOCOL_VERSION)?;
+    //             Ok(())
+    //         }
+    //         Err(_) => {
+    //             // TODO: Try to interpret as EIP-8 packet
+    //             Err(Error::NotImplemented)
+    //         }
+    //     }
+    // }
 }
 
 #[cfg(test)]
