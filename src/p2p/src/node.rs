@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use common::{H256, H512, Hasher, KeccakHasher, Public};
+use common::{H512};
 
 /// Node public key
 pub(crate) type NodeId = H512;
@@ -18,4 +18,8 @@ pub(crate) struct NodeEndpoint {
 pub(crate) struct NodeEntry {
     id: NodeId,
     endpoint: NodeEndpoint,
+}
+
+impl NodeEntry {
+    pub fn id(&self) -> &NodeId { &self.id }
 }

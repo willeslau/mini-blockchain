@@ -5,7 +5,6 @@ use rand::Rng;
 use rlp::{Rlp, RLPStream};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::node::{NodeId};
 
 const V4_AUTH_PACKET_SIZE: usize = 307;
 // const V4_ACK_PACKET_SIZE: usize = 210;
@@ -221,8 +220,6 @@ mod tests {
     use crate::handshake::{PROTOCOL_VERSION};
     use common::{sign, KeyPair, Public, Secret, H256, agree};
     use rlp::{Rlp, RLPStream};
-    use secp256k1::{PublicKey, Secp256k1, SecretKey};
-
 
     /// Helper function to perform RLP encoding on the some of the auth data
     fn rlp_encode(key_pair: &KeyPair, remote_pub: &Public, nonce: &H256, protocol: &u64) -> Vec<u8> {
