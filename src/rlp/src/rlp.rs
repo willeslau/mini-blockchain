@@ -143,6 +143,8 @@ impl RLPStream {
     pub fn out(&self) -> Vec<u8> {
         self.data.clone()
     }
+
+    pub fn as_bytes(&self) -> &[u8] { self.data.as_slice() }
 }
 
 impl From<RLPStream> for Vec<u8> {

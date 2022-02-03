@@ -1,10 +1,22 @@
 use std::collections::{HashMap, HashSet};
-use common::{Error, H256, keccak};
+use std::net::SocketAddr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use common::{Error, H256, keccak, Secret, sign};
+use rlp::RLPStream;
+use crate::connection::Bytes;
 use crate::db::Storage;
-use crate::node::{NodeEntry, NodeId};
+use crate::node::{NodeEndpoint, NodeEntry, NodeId};
+use crate::PROTOCOL_VERSION;
 
 const ADDRESS_BYTES_SIZE: usize = 32; // Size of address type in bytes.
 const MAX_NODES_PING: usize = 32; // Max nodes to add/ping at once
+
+const EXPIRY_TIME: Duration = Duration::from_secs(20);
+
+const PACKET_PING: u8 = 1;
+const PACKET_PONG: u8 = 2;
+const PACKET_FIND_NODE: u8 = 3;
+const PACKET_NEIGHBOURS: u8 = 4;
 
 /// The metadata of the target nodes being pinged
 struct InFlightMeta {
@@ -51,6 +63,8 @@ struct DiscoveryInner<'a> {
     id: NodeId,
     /// The hash of self node id
     id_hash: H256,
+    /// The self public endpoint
+    public_endpoint: NodeEndpoint,
     /// The buckets that hold the external nodes
     buckets: [Vec<NodeId>; ADDRESS_BYTES_SIZE * 8],
     /// Not allowed node ids
@@ -107,8 +121,21 @@ impl <'a> DiscoveryInner<'a> {
         }
     }
 
-    fn ping(&mut self, _e: NodeEntry, _reason: PingReason) -> Result<(), Error> {
+    fn ping(&mut self, e: NodeEntry, _reason: PingReason) -> Result<(), Error> {
+        // The ping packet: https://github.com/ethereum/devp2p/blob/master/discv4.md#ping-packet-0x01
+        let mut rlp = RLPStream::new_list(4);
+        rlp.append(&PROTOCOL_VERSION);
+        self.public_endpoint.to_rlp_list(&mut rlp);
+        e.endpoint().to_rlp_list(&mut rlp);
+        append_expiration(&mut rlp);
+
+        let hash = keccak(rlp.as_bytes());
+        let hash = self.send(PACKET_PING, &e.endpoint().udp_address(), &rlp.out())?;
         Ok(())
+    }
+
+    fn send(&self, packet_type: u8, socket_addr: &SocketAddr, data: &[u8]) -> Result<H256, Error> {
+        Ok(H256::random())
     }
 
     /// Checks if the node_id is allowed for connection
@@ -129,6 +156,36 @@ impl <'a> DiscoveryInner<'a> {
         }
         None
     }
+}
+
+fn append_expiration(rlp: &mut RLPStream) {
+    let expiry = SystemTime::now() + EXPIRY_TIME;
+    let timestamp = expiry
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as u32;
+    rlp.append(&timestamp);
+}
+
+/// Prepare the package: [hash_of_signature_and_bytes, signature, bytes]
+fn assemble_packet(packet_id: u8, bytes: &[u8], secret: &Secret) -> Result<Bytes, Error> {
+    let mut packet = Bytes::with_capacity(bytes.len() + 32 + 65 + 1);
+    packet.resize(32 + 65, 0); // Filled in below
+    packet.push(packet_id);
+    packet.extend_from_slice(bytes);
+
+    let hash = keccak(&packet[(32 + 65)..]);
+    let signature = match sign(secret, &hash) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("Error signing UDP packet");
+            return Err(Error::from(e));
+        }
+    };
+    packet[32..(32 + 65)].copy_from_slice(&signature[..]);
+    let signed_hash = keccak(&packet[32..]);
+    packet[0..32].copy_from_slice(signed_hash.as_bytes());
+    Ok(packet)
 }
 
 #[cfg(test)]

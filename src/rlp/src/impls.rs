@@ -79,6 +79,7 @@ impl Decodable for u8 {
 }
 
 impl_encodable_for_u!(u64);
+impl_encodable_for_u!(u32);
 impl_encodable_for_u!(u8);
 impl_decodable_for_u!(u64);
 
