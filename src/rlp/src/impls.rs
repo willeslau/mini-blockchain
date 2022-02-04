@@ -31,6 +31,12 @@ impl Encodable for Vec<u8> {
     }
 }
 
+impl Encodable for &[u8] {
+    fn encode(&self, stream: &mut RLPStream) {
+        stream.write_iter(self.iter().cloned())
+    }
+}
+
 macro_rules! impl_encodable_for_u {
 	($name: ident) => {
 		impl Encodable for $name {
@@ -80,6 +86,7 @@ impl Decodable for u8 {
 
 impl_encodable_for_u!(u64);
 impl_encodable_for_u!(u32);
+impl_encodable_for_u!(u16);
 impl_encodable_for_u!(u8);
 impl_decodable_for_u!(u64);
 

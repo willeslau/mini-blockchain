@@ -1,12 +1,12 @@
 use crate::connection::{Bytes, Connection};
 use crate::error::Error;
-use common::{agree, decrypt, encrypt, sign, KeyPair, Public, H256, H520, recover};
+use common::{agree, decrypt, encrypt, sign, KeyPair, Public, H256};
 use rand::Rng;
 use rlp::{Rlp, RLPStream};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-const V4_AUTH_PACKET_SIZE: usize = 307;
+// const V4_AUTH_PACKET_SIZE: usize = 307;
 // const V4_ACK_PACKET_SIZE: usize = 210;
 const V4_ACK_PACKET_SIZE: usize = 210;
 const PROTOCOL_VERSION: u64 = 4;
@@ -74,8 +74,8 @@ pub(crate) struct HandshakeInner {
     /// Remote `RLPx` protocol version.
     pub remote_version: u64,
     auth_cipher: Bytes,
-    /// A copy of received encrypted ack packet
-    ack_cipher: Bytes,
+    // /// A copy of received encrypted ack packet
+    // ack_cipher: Bytes,
     state: HandshakeState,
     connection: Connection,
 }
@@ -91,7 +91,7 @@ impl HandshakeInner {
             key_pair: KeyPair::random(),
             nonce,
             auth_cipher: Default::default(),
-            ack_cipher: Default::default(),
+            // ack_cipher: Default::default(),
             state: HandshakeState::New,
             remote_ephemeral: Public::default(),
             remote_nonce: H256::default(),
@@ -124,27 +124,27 @@ impl HandshakeInner {
         Ok(())
     }
 
-    fn update_remote_id(&mut self, public: Public) {
-        self.remote_node_pub = public;
-    }
+    // fn update_remote_id(&mut self, public: Public) {
+    //     self.remote_node_pub = public;
+    // }
 
-    fn update_auth_meta(
-        &mut self,
-        sig: &[u8],
-        remote_public: &[u8],
-        remote_nonce: &[u8],
-        remote_version: u64,
-    ) -> Result<(), Error> {
-        // if we are the originator, this should not have affected the existing values.
-        self.update_remote_id(Public::from_slice(remote_public));
-        self.remote_nonce = H256::from_slice(remote_nonce);
-        self.remote_version = remote_version;
-        let shared = agree(self.key_pair.secret(), &self.remote_node_pub)?;
-        let signature = H520::from_slice(sig);
-        let h: &H256 = shared.as_ref();
-        self.remote_ephemeral = recover(&signature.into(), &(h ^ &self.remote_nonce))?;
-        Ok(())
-    }
+    // fn update_auth_meta(
+    //     &mut self,
+    //     sig: &[u8],
+    //     remote_public: &[u8],
+    //     remote_nonce: &[u8],
+    //     remote_version: u64,
+    // ) -> Result<(), Error> {
+    //     // if we are the originator, this should not have affected the existing values.
+    //     self.update_remote_id(Public::from_slice(remote_public));
+    //     self.remote_nonce = H256::from_slice(remote_nonce);
+    //     self.remote_version = remote_version;
+    //     let shared = agree(self.key_pair.secret(), &self.remote_node_pub)?;
+    //     let signature = H520::from_slice(sig);
+    //     let h: &H256 = shared.as_ref();
+    //     self.remote_ephemeral = recover(&signature.into(), &(h ^ &self.remote_nonce))?;
+    //     Ok(())
+    // }
 
     /// Parse and validate ack message
     async fn read_ack(&mut self) -> Result<(), Error> {
@@ -217,6 +217,7 @@ impl HandshakeInner {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
     use crate::handshake::{PROTOCOL_VERSION};
     use common::{sign, KeyPair, Public, Secret, H256, agree};
     use rlp::{Rlp, RLPStream};
@@ -288,8 +289,8 @@ mod tests {
 
         let rlp = Rlp::new(&v);
 
-        let p: Public = rlp.val_at(0).unwrap();
-        let f: H256 = rlp.val_at(1).unwrap();
-        let u: u64 = rlp.val_at(2).unwrap();
+        let _p: Public = rlp.val_at(0).unwrap();
+        let _f: H256 = rlp.val_at(1).unwrap();
+        let _u: u64 = rlp.val_at(2).unwrap();
     }
 }

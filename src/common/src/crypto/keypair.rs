@@ -10,56 +10,12 @@ use crate::error::Error;
 use crate::{H256, H512, SECP256K1};
 
 use secp256k1::rand::rngs::OsRng;
-use rlp::Rlp;
 
-// pub type Public = H512;
-#[derive(Debug, PartialEq, Clone)]
-pub struct Public {
-    inner: H512,
-}
+pub type Public = H512;
 
-impl Public {
-    pub fn copy_from_slice(&mut self, data: &[u8]) {
-        self.inner.as_bytes_mut().copy_from_slice(data);
-    }
-
-    pub fn from_str(s: &str) -> Result<Self, Error> {
-        let inner = H512::from_str(s)?;
-        Ok(Self { inner })
-    }
-
-    pub fn from_slice(s: &[u8]) -> Self {
-        Self { inner: H512::from_slice(s) }
-    }
-}
-
-impl AsRef<[u8]> for Public {
-    fn as_ref(&self) -> &[u8] {
-        self.inner.as_ref()
-    }
-}
-
-impl From<FromHexError> for Error{
+impl From<FromHexError> for Error {
     fn from(_: FromHexError) -> Self {
         Error::CannotParseHexString
-    }
-}
-
-impl Default for Public {
-    fn default() -> Self {
-        Self { inner: H512::default() }
-    }
-}
-
-impl rlp::Encodable for Public {
-    fn encode(&self, stream: &mut rlp::RLPStream) {
-        stream.write_iter(self.as_ref().iter().cloned())
-    }
-}
-impl rlp::Decodable for Public {
-    fn decode(rlp: &Rlp) -> Result<Self, rlp::Error> {
-        let inner = H512::decode(rlp)?;
-        Ok(Public{ inner })
     }
 }
 

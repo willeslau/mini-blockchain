@@ -2,6 +2,9 @@
 
 pub use connection::Connection;
 pub use handshake::Handshake;
+pub use discovery::Discovery;
+pub use config::{ HostInfo, NetowkrConfig };
+pub use node::{ NodeEntry, NodeEndpoint };
 
 mod config;
 mod connection;

@@ -1,6 +1,7 @@
 use common::{H256, Public};
 use p2p::{Connection, Handshake};
 use std::error::Error;
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use tokio::net::TcpStream;

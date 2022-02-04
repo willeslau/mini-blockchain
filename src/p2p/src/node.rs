@@ -1,14 +1,15 @@
 use core::slice;
 use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
+use core::str::FromStr;
 use common::{H512};
 use rlp::RLPStream;
 
 /// Node public key
-pub(crate) type NodeId = H512;
+pub type NodeId = H512;
 
 /// Node address info
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct NodeEndpoint {
+pub struct NodeEndpoint {
     /// IP(V4 or V6) address
     pub address: SocketAddr,
     /// Connection port.
@@ -16,6 +17,13 @@ pub(crate) struct NodeEndpoint {
 }
 
 impl NodeEndpoint {
+    pub fn new(ip: &str, udp_port: u16) -> Self {
+        Self {
+            address: SocketAddr::from_str(&*format!("{:}:{:}", ip, udp_port)).expect("invalid endpoint"),
+            udp_port
+        }
+    }
+
     pub fn udp_address(&self) -> SocketAddr {
         match self.address {
             SocketAddr::V4(a) => SocketAddr::V4(SocketAddrV4::new(*a.ip(), self.udp_port)),
@@ -50,12 +58,15 @@ impl NodeEndpoint {
 
 /// The node entry to store in database storage
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct NodeEntry {
+pub struct NodeEntry {
     id: NodeId,
     endpoint: NodeEndpoint,
 }
 
 impl NodeEntry {
+    pub fn new(id: NodeId, endpoint: NodeEndpoint) -> Self {
+        Self { id, endpoint }
+    }
     pub fn id(&self) -> &NodeId { &self.id }
     pub fn endpoint(&self) -> &NodeEndpoint { &self.endpoint }
 }
