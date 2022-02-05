@@ -1,11 +1,9 @@
-use common::{H256, Public};
-use p2p::{Connection, Discovery, Handshake, HostInfo, NodeEndpoint, NodeEntry};
+use common::{Public};
+use p2p::{Discovery, HostInfo, NodeEndpoint, NodeEntry};
 use std::error::Error;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-use tokio::net::TcpStream;
-use tokio::time::timeout;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

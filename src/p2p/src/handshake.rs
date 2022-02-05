@@ -2,7 +2,7 @@ use crate::connection::{Bytes, Connection};
 use crate::error::Error;
 use common::{agree, decrypt, encrypt, sign, KeyPair, Public, H256};
 use rand::Rng;
-use rlp::{Rlp, RLPStream};
+use rlp::{RLPStream, Rlp};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -40,7 +40,7 @@ impl Handshake {
         let inner = HandshakeInner::new(remote_node_pub, nonce, connection);
 
         Self {
-            inner: Arc::new(RwLock::new(inner))
+            inner: Arc::new(RwLock::new(inner)),
         }
     }
 
@@ -81,11 +81,7 @@ pub(crate) struct HandshakeInner {
 }
 
 impl HandshakeInner {
-    pub fn new(
-        remote_node_pub: Public,
-        nonce: H256,
-        connection: Connection,
-    ) -> Self {
+    pub fn new(remote_node_pub: Public, nonce: H256, connection: Connection) -> Self {
         Self {
             remote_node_pub,
             key_pair: KeyPair::random(),
@@ -96,7 +92,7 @@ impl HandshakeInner {
             remote_ephemeral: Public::default(),
             remote_nonce: H256::default(),
             remote_version: 0,
-            connection
+            connection,
         }
     }
 
@@ -104,7 +100,13 @@ impl HandshakeInner {
         let static_shared = agree(self.key_pair.secret(), &self.remote_node_pub)?;
 
         let mut rlp = RLPStream::new_list(4);
-        rlp.append(&sign(self.key_pair.secret(), &(static_shared.as_ref() ^ &self.nonce))?.to_vec());
+        rlp.append(
+            &sign(
+                self.key_pair.secret(),
+                &(static_shared.as_ref() ^ &self.nonce),
+            )?
+            .to_vec(),
+        );
         rlp.append(self.key_pair.public());
         rlp.append(&self.nonce);
         rlp.append(&PROTOCOL_VERSION);
@@ -217,13 +219,18 @@ impl HandshakeInner {
 
 #[cfg(test)]
 mod tests {
+    use crate::handshake::PROTOCOL_VERSION;
+    use common::{agree, sign, KeyPair, Public, Secret, H256};
+    use rlp::{RLPStream, Rlp};
     use std::str::FromStr;
-    use crate::handshake::{PROTOCOL_VERSION};
-    use common::{sign, KeyPair, Public, Secret, H256, agree};
-    use rlp::{Rlp, RLPStream};
 
     /// Helper function to perform RLP encoding on the some of the auth data
-    fn rlp_encode(key_pair: &KeyPair, remote_pub: &Public, nonce: &H256, protocol: &u64) -> Vec<u8> {
+    fn rlp_encode(
+        key_pair: &KeyPair,
+        remote_pub: &Public,
+        nonce: &H256,
+        protocol: &u64,
+    ) -> Vec<u8> {
         let static_shared = agree(key_pair.secret(), remote_pub).unwrap();
         let mut rlp = RLPStream::new_list(4);
 
@@ -272,20 +279,33 @@ mod tests {
             ]
         );
 
-        let ack = hex::encode("\
+        let ack = hex::encode(
+            "\
 			049f8abcfa9c0dc65b982e98af921bc0ba6e4243169348a236abe9df5f93aa69d99cadddaa387662\
 			b0ff2c08e9006d5a11a278b1b3331e5aaabf0a32f01281b6f4ede0e09a2d5f585b26513cb794d963\
 			5a57563921c04a9090b4f14ee42be1a5461049af4ea7a7f49bf4c97a352d39c8d02ee4acc416388c\
 			1c66cec761d2bc1c72da6ba143477f049c9d2dde846c252c111b904f630ac98e51609b3b1f58168d\
 			dca6505b7196532e5f85b259a20c45e1979491683fee108e9660edbf38f3add489ae73e3dda2c71b\
 			d1497113d5c755e942d1\
-			");
+			",
+        );
         println!("{:?}", ack.as_bytes().len());
     }
 
     #[test]
     fn test_rlp_works() {
-        let v = vec![248, 100, 184, 64, 186, 92, 206, 211, 187, 200, 65, 210, 152, 97, 40, 173, 166, 44, 7, 110, 101, 42, 93, 126, 43, 3, 150, 175, 128, 227, 87, 65, 82, 51, 154, 192, 94, 220, 87, 207, 170, 2, 139, 177, 110, 193, 159, 237, 16, 78, 172, 88, 47, 112, 14, 209, 240, 176, 77, 237, 84, 17, 23, 154, 51, 108, 240, 40, 160, 215, 217, 94, 141, 43, 16, 124, 63, 11, 34, 168, 196, 53, 217, 254, 50, 126, 120, 82, 187, 77, 207, 174, 246, 105, 52, 120, 157, 101, 137, 38, 41, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let v = vec![
+            248, 100, 184, 64, 186, 92, 206, 211, 187, 200, 65, 210, 152, 97, 40, 173, 166, 44, 7,
+            110, 101, 42, 93, 126, 43, 3, 150, 175, 128, 227, 87, 65, 82, 51, 154, 192, 94, 220,
+            87, 207, 170, 2, 139, 177, 110, 193, 159, 237, 16, 78, 172, 88, 47, 112, 14, 209, 240,
+            176, 77, 237, 84, 17, 23, 154, 51, 108, 240, 40, 160, 215, 217, 94, 141, 43, 16, 124,
+            63, 11, 34, 168, 196, 53, 217, 254, 50, 126, 120, 82, 187, 77, 207, 174, 246, 105, 52,
+            120, 157, 101, 137, 38, 41, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0,
+        ];
 
         let rlp = Rlp::new(&v);
 

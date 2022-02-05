@@ -1,4 +1,4 @@
-use common::{H256, Public};
+use common::{Public, H256};
 use p2p::{Connection, Handshake};
 use std::error::Error;
 use std::str::FromStr;
@@ -11,7 +11,11 @@ use tokio::time::timeout;
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    let remote = timeout(Duration::from_millis(10000),TcpStream::connect("18.138.108.67:30303")).await??;
+    let remote = timeout(
+        Duration::from_millis(10000),
+        TcpStream::connect("18.138.108.67:30303"),
+    )
+    .await??;
     println!("connected");
     let connection = Connection::new(remote);
 

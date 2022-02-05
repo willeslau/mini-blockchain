@@ -1,6 +1,6 @@
-use common::{KeyPair};
-use std::net::{SocketAddr, SocketAddrV4};
 use crate::node::NodeEndpoint;
+use common::KeyPair;
+use std::net::{SocketAddr, SocketAddrV4};
 
 pub struct HostInfo {
     /// This field must be set to a valid secp256k1 private key.
@@ -15,21 +15,27 @@ impl HostInfo {
     pub fn key_pair(&self) -> KeyPair {
         match &self.key_pair {
             None => KeyPair::random(),
-            Some(key_pair) => key_pair.clone()
+            Some(key_pair) => key_pair.clone(),
         }
     }
 
     pub fn public_endpoint(&self) -> NodeEndpoint {
         match &self.public_endpoint {
-            None => NodeEndpoint{ address: SocketAddr::V4(SocketAddrV4::new("0.0.0.0".parse().unwrap(), 30303)), udp_port: 30303 },
-            Some(public_endpoint) => public_endpoint.clone()
+            None => NodeEndpoint {
+                address: SocketAddr::V4(SocketAddrV4::new("0.0.0.0".parse().unwrap(), 30303)),
+                udp_port: 30303,
+            },
+            Some(public_endpoint) => public_endpoint.clone(),
         }
     }
 }
 
 impl Default for HostInfo {
     fn default() -> Self {
-        Self { key_pair: Some(KeyPair::random()), public_endpoint: None }
+        Self {
+            key_pair: Some(KeyPair::random()),
+            public_endpoint: None,
+        }
     }
 }
 

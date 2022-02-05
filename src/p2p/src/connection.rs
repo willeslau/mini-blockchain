@@ -96,7 +96,9 @@ impl Connection {
     }
 
     /// Set the expected payload when data is received after write
-    pub fn expect(&mut self, size: usize) { self.rec_size = size; }
+    pub fn expect(&mut self, size: usize) {
+        self.rec_size = size;
+    }
 }
 
 impl From<std::io::Error> for Error {

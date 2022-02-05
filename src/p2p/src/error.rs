@@ -1,6 +1,6 @@
+use crate::discovery::Request;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::error::SendError;
-use crate::discovery::Request;
 
 /// Errors occur in this package
 #[derive(Debug)]
@@ -27,6 +27,8 @@ pub enum Error {
     // ========== P2P network errors ==========
     InvalidNodeDistance,
     NodeBlocked,
+    InvalidPacket,
+    PongExpired,
 
     // =========== Handshake Related ==========
     BadProtocol,

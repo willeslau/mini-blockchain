@@ -1,6 +1,6 @@
+use crate::node::NodeId;
 use common::vec_to_u64_le;
 use kv_storage::{DBStorage, MemoryDB};
-use crate::node::NodeId;
 
 const DB_LOCAL_SEQ: &str = "seq";
 const DB_LOCAL_PREFIX: &str = "local:";
@@ -19,9 +19,7 @@ impl Storage {
         Self::new(Box::new(inner))
     }
 
-    pub fn store_node(&mut self) {
-
-    }
+    pub fn store_node(&mut self) {}
 
     pub fn local_seq(&self, id: &NodeId) -> u64 {
         let k = local_item_key(id, DB_LOCAL_SEQ);
