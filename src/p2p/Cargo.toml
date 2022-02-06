@@ -17,6 +17,8 @@ common = { path = "../common" }
 kv-storage = { path = "../kv-storage" }
 rlp = { path = "../rlp" }
 rand = "0.8.4"
+#lru = "0.7.2"
+futures = "0.3.19"
 
 [dev-dependencies]
 secp256k1 = { version = "0.21.2" }

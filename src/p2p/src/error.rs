@@ -1,4 +1,5 @@
 use crate::discovery::Request;
+use crate::NodeEntry;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::error::SendError;
 
@@ -29,6 +30,11 @@ pub enum Error {
     NodeBlocked,
     InvalidPacket,
     PongExpired,
+    NodeIsSelf,
+    NodeNotFoundInBucket {
+        entry: NodeEntry,
+        distance: usize,
+    },
 
     // =========== Handshake Related ==========
     BadProtocol,

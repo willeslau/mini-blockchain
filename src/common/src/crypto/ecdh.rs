@@ -27,8 +27,8 @@ pub fn recover(signature: &H520, message: &H256) -> Result<Public, Error> {
 
     let pubkey = &SECP256K1.recover_ecdsa(&Message::from_slice(&message[..])?, &rsig)?;
     let serialized = pubkey.serialize_uncompressed();
-    let public = Public::from_slice(&serialized[1..65]);
-    Ok(public)
+
+    Ok(Public::from_slice(&serialized[1..65]))
 }
 
 #[cfg(test)]

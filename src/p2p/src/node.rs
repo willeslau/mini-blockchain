@@ -94,6 +94,12 @@ impl NodeEndpoint {
                 SocketAddr::V6(a) => !a.ip().is_unspecified(),
             }
     }
+
+    /// Validates that the tcp port is not 0 and that the node is a valid discovery node (i.e. `is_valid_discovery_node()` is true).
+    /// Sync happens over tcp.
+    pub fn is_valid_sync_node(&self) -> bool {
+        self.is_valid_discovery_node() && self.address.port() != 0
+    }
 }
 
 /// The node entry to store in database storage
@@ -112,5 +118,8 @@ impl NodeEntry {
     }
     pub fn endpoint(&self) -> &NodeEndpoint {
         &self.endpoint
+    }
+    pub fn into(self) -> (NodeId, NodeEndpoint) {
+        (self.id, self.endpoint)
     }
 }
