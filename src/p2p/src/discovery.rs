@@ -17,10 +17,11 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 
 const ADDRESS_BYTES_SIZE: usize = 32;
+const ADDRESS_BITS_SIZE: usize = ADDRESS_BYTES_SIZE * 8;
 // Size of address type in bytes.
 const MAX_NODES_PING: usize = 32;
 // Max nodes to add/ping at once
-const UDP_MAX_PACKET_SIZE: usize = 1024;
+const UDP_MAX_PACKET_SIZE: usize = 1500;
 const EXPIRY_TIME: Duration = Duration::from_secs(20);
 const BUCKET_SIZE: usize = 16; // Denoted by k in [Kademlia]. Number of nodes stored in each bucket.
 
@@ -309,7 +310,8 @@ impl DiscoveryInner {
         // check hash of package
         let hash_signed = keccak(&packet[32..]);
         if hash_signed[..] != packet[0..32] {
-            return Err(Error::BadProtocol);
+            log::error!("signature of packet does not match, packet size: {:}", packet.len());
+            return Err(Error::PacketHashNotMatch);
         }
 
         // recover message sender node id
@@ -326,13 +328,36 @@ impl DiscoveryInner {
             }
             PACKET_PONG => self.on_pong(&signed[1..], node_id, from).await,
             // TODO: implement find node
-            // PACKET_FIND_NODE => OK(()),
+            PACKET_FIND_NODE => self.on_find_node(&signed[1..], node_id, from).await,
             PACKET_NEIGHBOURS => self.on_neighbours(&signed[1..], node_id, from).await,
             _ => {
                 log::debug!("Unknown UDP packet: {}", packet_id);
                 Ok(())
             }
         }
+    }
+
+    async fn on_find_node(
+        &mut self,
+        bytes: &[u8],
+        from_node: NodeId,
+        from_socket: SocketAddr,
+    ) -> Result<(), Error> {
+        // step 1. parse the bytes
+        log::debug!("got find node from {:?} ; node_id={:#x}", &from_socket, from_node);
+
+        let rlp = Rlp::new(bytes);
+        let target: NodeId = rlp.val_at(0)?;
+        let expire: u64 = rlp.val_at(1)?;
+        self.check_expired(expire)?;
+
+        // let dis = match Self::distance(&self.id_hash, &keccak(target.as_bytes())) {
+        //     None => { return Ok(()); }
+        //     Some(dis) => dis
+        // };
+        let nodes = self.closest_node(&target).await;
+
+        Ok(())
     }
 
     async fn on_neighbours(
@@ -359,10 +384,9 @@ impl DiscoveryInner {
                     }
                 };
 
-                // TODO: In the original open-ethereum code, this is only deleted if
-                // TODO: response_count == BUCKET_SIZE. Mayber they have some timeout
-                // TODO: checks? Not so sure, kiv for some time.
-                if entry.get().response_count >= BUCKET_SIZE {
+                // TODO: we should have some sort of timeout checks,
+                // TODO: ensure that it's not dangling messages.
+                if entry.get().response_count == BUCKET_SIZE {
                     entry.remove();
                 }
                 expected
@@ -395,14 +419,15 @@ impl DiscoveryInner {
                 log::debug!("node id not allowed: {:?}", id);
                 continue;
             }
+
             let entry = NodeEntry::new(id, endpoint);
             nodes.push(entry);
         }
 
-        // avoid Send in rlp, just make Rust happy
-        for n in nodes {
-            self.add_node(n).await?;
-        }
+        // // avoid Send in rlp, just make Rust happy
+        // for n in nodes {
+        //     self.add_node(n).await?;
+        // }
 
         Ok(())
     }
@@ -484,6 +509,48 @@ impl DiscoveryInner {
     }
 
     // ========= Helper Functions =========
+    async fn closest_node(&self, target: &NodeId) -> Vec<NodeId> {
+        let mut nodes = Vec::with_capacity(BUCKET_SIZE);
+        let append_nodes = |nodes: &mut Vec<NodeId>, bucket: &VecDeque<BucketEntry>| {
+            let mut candidates: Vec<BucketEntry> = bucket.iter().collect();
+            candidates.sort_unstable_by_key(|a, b| a.id_hash ^ b.id_hash);
+
+            let vacancies = nodes.capacity() - nodes.len();
+            let mut to_append = if vacancies >= candidates.len() {
+                candidates.iter().map(|e| e.node.id().clone()).collect()
+            } else {
+                candidates[..vacancies].iter().map(|e| e.node.id().clone()).collect()
+            };
+            nodes.append(&mut to_append);
+
+            nodes.len() == BUCKET_SIZE
+        };
+
+        let target_distance = self.id_hash ^ keccak(target.as_bytes());
+
+        for i in 0..ADDRESS_BITS_SIZE {
+            // the distance bit at i is set
+            if target_distance[i / 8] & 1 << i % 8 == 1 {
+                // target distance at index 0 corresponds to
+                // the max 8 bits of the bucket, need to reverse
+                let j = ADDRESS_BITS_SIZE - 1 - i;
+                if !self.buckets[j].is_empty() && append_nodes(&mut nodes, &self.buckets[j]) {
+                    return nodes;
+                }
+            }
+        }
+
+        // for i in 0..ADDRESS_BITS_SIZE {
+        //     // the distance bit at i is set
+        //     if target_distance[i / 8] & 1 << i % 8 == 1 {
+        //         if !self.buckets[i].is_empty() && append_nodes(&mut nodes, &self.buckets[i]) {
+        //             return nodes;
+        //         }
+        //     }
+        // }
+        vec![]
+    }
+
     async fn update_node(&mut self, n: NodeEntry) -> Result<(), Error> {
         match self.update_bucket(n) {
             Err(Error::NodeIsSelf) => {}

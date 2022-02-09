@@ -38,6 +38,7 @@ pub enum Error {
 
     // =========== Handshake Related ==========
     BadProtocol,
+    PacketHashNotMatch,
     ExpectedReceivedSizeNotSet,
 }
 
