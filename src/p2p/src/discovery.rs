@@ -7,7 +7,7 @@ use crate::PROTOCOL_VERSION;
 use common::{keccak, recover, sign, Secret, H256, H520};
 use rlp::{RLPStream, Rlp};
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -510,6 +510,16 @@ impl DiscoveryInner {
 
     // ========= Helper Functions =========
     async fn closest_node(&self, target: &NodeId) -> Vec<NodeId> {
+        let mut nodes = BinaryHeap::with_capacity(BUCKET_SIZE);
+        for bucket in &self.buckets {
+            for entry in bucket {
+                if nodes.len() < BUCKET_SIZE {
+                    nodes.push(entry);
+                } else if  {
+
+                }
+            }
+        }
         let mut nodes = Vec::with_capacity(BUCKET_SIZE);
         let append_nodes = |nodes: &mut Vec<NodeId>, bucket: &VecDeque<BucketEntry>| {
             let mut candidates: Vec<BucketEntry> = bucket.iter().collect();
@@ -533,21 +543,22 @@ impl DiscoveryInner {
             if target_distance[i / 8] & 1 << i % 8 == 1 {
                 // target distance at index 0 corresponds to
                 // the max 8 bits of the bucket, need to reverse
-                let j = ADDRESS_BITS_SIZE - 1 - i;
-                if !self.buckets[j].is_empty() && append_nodes(&mut nodes, &self.buckets[j]) {
+                let bucket = &self.buckets[ADDRESS_BITS_SIZE - 1 - i];
+                if !bucket.is_empty() && append_nodes(&mut nodes, bucket) {
                     return nodes;
                 }
             }
         }
 
-        // for i in 0..ADDRESS_BITS_SIZE {
-        //     // the distance bit at i is set
-        //     if target_distance[i / 8] & 1 << i % 8 == 1 {
-        //         if !self.buckets[i].is_empty() && append_nodes(&mut nodes, &self.buckets[i]) {
-        //             return nodes;
-        //         }
-        //     }
-        // }
+        for i in (0..ADDRESS_BITS_SIZE).rev() {
+            // the distance bit at i is set
+            if target_distance[i / 8] & 1 << i % 8 == 0 {
+                let bucket = &self.buckets[ADDRESS_BITS_SIZE - 1 - i];
+                if !bucket.is_empty() && append_nodes(&mut nodes, bucket) {
+                    return nodes;
+                }
+            }
+        }
         vec![]
     }
 
