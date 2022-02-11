@@ -24,7 +24,8 @@ const DISCOVERY_MAX_STEPS: u16 = 8; // Max iterations of discovery
 const UDP_MAX_PACKET_SIZE: usize = 1280; // Max nodes to add/ping at once
 const EXPIRY_TIME: Duration = Duration::from_secs(20);
 const BUCKET_SIZE: usize = 16; // Denoted by k in [Kademlia]. Number of nodes stored in each bucket.
-const DISCOVERY_ROUND_TIMEOUT: u64 = 1000; // in millis
+const DISCOVERY_ROUND_TIMEOUT: u64 = 300; // in millis
+const DISCOVERY_REFRESH_TIMEOUT: u64 = 10; // in second
 const ALPHA: usize = 3; // Kademlia alpha parameter
 const NODE_LAST_SEEN_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -195,8 +196,10 @@ impl Discovery {
         let socket = UdpSocket::bind(info.public_endpoint().udp_address()).await?;
         let mut discovery = DiscoveryInner::new(info, node_table, udp_tx);
         let handle = tokio::spawn(async move {
-            let mut interval =
+            let mut round_interval =
                 tokio::time::interval(Duration::from_millis(DISCOVERY_ROUND_TIMEOUT));
+            let mut refresh_interval =
+                tokio::time::interval(Duration::from_secs(DISCOVERY_REFRESH_TIMEOUT));
             // tricky, need to 0 init, otherwise udp socket will return empty
             let mut buf = vec![0; UDP_MAX_PACKET_SIZE];
 
@@ -220,10 +223,16 @@ impl Discovery {
                         if let Request::Stop = request { break; }
                         discovery.handle(request).await;
                     }
-                    _ = interval.tick() => {
+                    _ = round_interval.tick() => {
                         match discovery.round().await {
                             Ok(_) => {},
                             Err(e) => log::error!("error processing round {:?}", e),
+                        }
+                    }
+                    _ = refresh_interval.tick() => {
+                        match discovery.refresh().await {
+                            Ok(_) => {},
+                            Err(e) => log::error!("error processing refresh {:?}", e),
                         }
                     }
                 }
@@ -635,7 +644,6 @@ impl DiscoveryInner {
 
         if self.discovery_round.is_some() {
             self.discover().await;
-            // Start discovering if the first pings have been sent (or timed out)
         } else if self.pinging_nodes.len() == 0 && !self.discovery_initiated {
             self.discovery_initiated = true;
             self.refresh();
@@ -705,6 +713,7 @@ impl DiscoveryInner {
             self.start_discovery();
             return;
         }
+
         self.discovery_round = Some(discovery_round + 1);
     }
 

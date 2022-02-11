@@ -33,11 +33,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut discovery = Discovery::start(&info, node_table).await.unwrap();
 
     discovery.add_node(target_entry.clone()).await.unwrap();
-    thread::sleep(Duration::from_millis(2000));
-
-    // // need to wait a bit for ping/pong to finish
-    // let find_id = Public::from_str("d860a01f9722d78051619d1e2351aba3f43f943f6f00718d1b9baa4101932a1f5011f16bb2b1bb35db20d6fe28fa0bf09636d26a87d31de9ec6203eeedb1f666").unwrap();
-    // discovery.find_node(find_id, target_entry).await.unwrap();
     thread::sleep(Duration::from_millis(1000_000));
 
     Ok(())
