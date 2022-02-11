@@ -230,10 +230,7 @@ impl Discovery {
                         }
                     }
                     _ = refresh_interval.tick() => {
-                        match discovery.refresh() {
-                            Ok(_) => {},
-                            Err(e) => log::error!("error processing refresh {:?}", e),
-                        }
+                        discovery.refresh();
                     }
                 }
             }
