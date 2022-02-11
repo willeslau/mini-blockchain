@@ -2,7 +2,7 @@ use crate::node::NodeId;
 use crate::{NodeEndpoint, NodeEntry};
 use kv_storage::{DBStorage, MemoryDB};
 use std::collections::HashMap;
-use std::time::SystemTime;
+// use std::time::SystemTime;
 
 /// The different types of a Peer
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -15,8 +15,8 @@ pub(crate) enum PeerType {
 /// that was either a success or a failure.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum NodeContact {
-    Success(SystemTime),
-    Failure(SystemTime),
+    // Success(SystemTime),
+    // Failure(SystemTime),
 }
 
 pub struct Node {

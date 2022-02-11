@@ -78,14 +78,17 @@ impl<'a> NearestBucketsItem<'a> {
 impl<'a> Eq for NearestBucketsItem<'a> {}
 
 impl<'a> PartialEq<Self> for NearestBucketsItem<'a> {
-    fn eq(&self, _other: &Self) -> bool {
-        todo!()
+    fn eq(&self, other: &Self) -> bool {
+        self.dis == other.dis && self.entry.id_hash == other.entry.id_hash
     }
 }
 
 impl<'a> PartialOrd<Self> for NearestBucketsItem<'a> {
-    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
-        todo!()
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.dis.partial_cmp(&other.dis).map(|r| match r {
+            Ordering::Equal => self.entry.id_hash.cmp(&other.entry.id_hash),
+            order => order,
+        })
     }
 }
 
