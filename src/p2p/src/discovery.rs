@@ -218,7 +218,10 @@ impl Discovery {
                         discovery.handle(request).await;
                     }
                     _ = interval.tick() => {
-                        discovery.round().await;
+                        match discovery.round().await {
+                            Ok(_) => {},
+                            Err(e) => log::error!("error processing round {:?}", e),
+                        }
                     }
                 }
             }
