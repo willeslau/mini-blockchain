@@ -5,7 +5,9 @@ use crate::node::{NodeEndpoint, NodeEntry, NodeId};
 use crate::node_table::NodeTable;
 use crate::PROTOCOL_VERSION;
 use common::{keccak, recover, sign, Secret, H256, H520};
+use lru::LruCache;
 use rlp::{RLPStream, Rlp};
+use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
@@ -17,18 +19,28 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 
 const ADDRESS_BYTES_SIZE: usize = 32;
-const ADDRESS_BITS_SIZE: usize = ADDRESS_BYTES_SIZE * 8;
-// Size of address type in bytes.
-const MAX_NODES_PING: usize = 32;
-// Max nodes to add/ping at once
-const UDP_MAX_PACKET_SIZE: usize = 1500;
+const MAX_NODES_PING: usize = 32; // Size of address type in bytes.
+const DISCOVERY_MAX_STEPS: u16 = 8; // Max iterations of discovery
+const UDP_MAX_PACKET_SIZE: usize = 1280; // Max nodes to add/ping at once
 const EXPIRY_TIME: Duration = Duration::from_secs(20);
 const BUCKET_SIZE: usize = 16; // Denoted by k in [Kademlia]. Number of nodes stored in each bucket.
+const DISCOVERY_ROUND_TIMEOUT: u64 = 1000; // in millis
+const ALPHA: usize = 3; // Kademlia alpha parameter
+const NODE_LAST_SEEN_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
 const PACKET_PING: u8 = 1;
 const PACKET_PONG: u8 = 2;
 const PACKET_FIND_NODE: u8 = 3;
 const PACKET_NEIGHBOURS: u8 = 4;
+
+const PING_TIMEOUT: Duration = Duration::from_millis(500);
+const FIND_NODE_TIMEOUT: Duration = Duration::from_secs(2);
+const REQUEST_BACKOFF: [Duration; 4] = [
+    Duration::from_secs(1),
+    Duration::from_secs(4),
+    Duration::from_secs(16),
+    Duration::from_secs(64),
+];
 
 #[derive(Debug)]
 pub struct BucketEntry {
@@ -52,16 +64,81 @@ impl BucketEntry {
     }
 }
 
+struct NearestBucketsItem<'a> {
+    dis: usize,
+    entry: &'a BucketEntry,
+}
+
+impl<'a> NearestBucketsItem<'a> {
+    fn new(target_hash: &H256, entry: &'a BucketEntry) -> Option<Self> {
+        distance(target_hash, &entry.id_hash).map(|dis| Self { dis, entry })
+    }
+}
+
+impl<'a> Eq for NearestBucketsItem<'a> {}
+
+impl<'a> PartialEq<Self> for NearestBucketsItem<'a> {
+    fn eq(&self, _other: &Self) -> bool {
+        todo!()
+    }
+}
+
+impl<'a> PartialOrd<Self> for NearestBucketsItem<'a> {
+    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+impl<'a> Ord for NearestBucketsItem<'a> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.dis.cmp(&other.dis) {
+            Ordering::Equal => self.entry.id_hash.cmp(&other.entry.id_hash),
+            order => order,
+        }
+    }
+}
+
+/// Iterator for finding nearest node in the bucket to the target
+struct NearestBucketsFinder<'a> {
+    capacity: usize,
+    target_hash: H256,
+    nodes: BinaryHeap<NearestBucketsItem<'a>>,
+}
+
+impl<'a> NearestBucketsFinder<'a> {
+    fn push(&mut self, entry: &'a BucketEntry) {
+        let item = match NearestBucketsItem::new(&self.target_hash, entry) {
+            None => return,
+            Some(i) => i,
+        };
+
+        if self.nodes.len() < self.capacity {
+            self.nodes.push(item);
+            return;
+        }
+        let max_item = self.nodes.peek().unwrap();
+        if max_item > &item {
+            self.nodes.pop();
+            self.nodes.push(item);
+        }
+    }
+
+    fn dump<E>(self, f: impl Fn(&NearestBucketsItem<'a>) -> E) -> Vec<E> {
+        self.nodes.into_vec().iter().map(|i| f(i)).collect()
+    }
+}
 /// The metadata of the target nodes being pinged
 struct PingNodeRequest {
     node: NodeEntry,
     reason: PingReason,
-    timestamp: Instant,
+    /// The instant when the ping request was sent
+    send_at: Instant,
     hash: H256,
 }
 
 /// Find node request
 struct FindNodeRequest {
+    /// The instant when the find request was sent
     sent_at: Instant,
     response_count: usize,
     answered: bool,
@@ -115,6 +192,8 @@ impl Discovery {
         let socket = UdpSocket::bind(info.public_endpoint().udp_address()).await?;
         let mut discovery = DiscoveryInner::new(info, node_table, udp_tx);
         let handle = tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_millis(DISCOVERY_ROUND_TIMEOUT));
             // tricky, need to 0 init, otherwise udp socket will return empty
             let mut buf = vec![0; UDP_MAX_PACKET_SIZE];
 
@@ -138,6 +217,9 @@ impl Discovery {
                         if let Request::Stop = request { break; }
                         discovery.handle(request).await;
                     }
+                    _ = interval.tick() => {
+                        discovery.round().await;
+                    }
                 }
             }
             log::info!("discovery ended");
@@ -155,7 +237,10 @@ impl Discovery {
             return;
         }
         self.is_stop = true;
-        self.request_tx.send(Request::Stop).await.unwrap_or_default();
+        self.request_tx
+            .send(Request::Stop)
+            .await
+            .unwrap_or_default();
     }
 
     /// Add a new node to discovery table. Pings the node.
@@ -212,8 +297,14 @@ struct DiscoveryInner {
     finding_nodes: HashMap<NodeId, FindNodeRequest>,
     /// The node entries to be added
     to_add: Vec<NodeEntry>,
-
+    other_observed_nodes: LruCache<NodeId, (NodeEndpoint, Instant)>,
     sender: mpsc::Sender<(Bytes, SocketAddr)>,
+
+    // discovery related
+    discovery_initiated: bool,
+    discovery_round: Option<u16>,
+    discovery_id: NodeId,
+    discovery_nodes: HashSet<NodeId>,
 }
 
 impl DiscoveryInner {
@@ -235,7 +326,12 @@ impl DiscoveryInner {
             pinging_nodes: HashMap::new(),
             finding_nodes: HashMap::new(),
             to_add: vec![],
+            other_observed_nodes: LruCache::new(1024),
             sender: udp_tx,
+            discovery_initiated: false,
+            discovery_round: None,
+            discovery_id: Default::default(),
+            discovery_nodes: Default::default(),
         }
     }
 
@@ -259,7 +355,7 @@ impl DiscoveryInner {
     async fn add_node(&mut self, e: NodeEntry) -> Result<(), Error> {
         log::debug!("attempt to add node: {:?}", e);
         let node_hash = keccak(e.id().as_bytes());
-        match Self::distance(&self.id_hash, &node_hash) {
+        match distance(&self.id_hash, &node_hash) {
             Some(d) => {
                 if self.buckets[d].iter().any(|bn| bn.node.id() == e.id()) {
                     return Ok(());
@@ -310,7 +406,10 @@ impl DiscoveryInner {
         // check hash of package
         let hash_signed = keccak(&packet[32..]);
         if hash_signed[..] != packet[0..32] {
-            log::error!("signature of packet does not match, packet size: {:}", packet.len());
+            log::error!(
+                "signature of packet does not match, packet size: {:}",
+                packet.len()
+            );
             return Err(Error::PacketHashNotMatch);
         }
 
@@ -327,7 +426,6 @@ impl DiscoveryInner {
                     .await
             }
             PACKET_PONG => self.on_pong(&signed[1..], node_id, from).await,
-            // TODO: implement find node
             PACKET_FIND_NODE => self.on_find_node(&signed[1..], node_id, from).await,
             PACKET_NEIGHBOURS => self.on_neighbours(&signed[1..], node_id, from).await,
             _ => {
@@ -343,20 +441,34 @@ impl DiscoveryInner {
         from_node: NodeId,
         from_socket: SocketAddr,
     ) -> Result<(), Error> {
-        // step 1. parse the bytes
-        log::debug!("got find node from {:?} ; node_id={:#x}", &from_socket, from_node);
+        log::debug!(
+            "got find node from {:?} ; node_id={:#x}",
+            &from_socket,
+            from_node
+        );
 
+        // parse the bytes
         let rlp = Rlp::new(bytes);
         let target: NodeId = rlp.val_at(0)?;
         let expire: u64 = rlp.val_at(1)?;
         self.check_expired(expire)?;
 
-        // let dis = match Self::distance(&self.id_hash, &keccak(target.as_bytes())) {
-        //     None => { return Ok(()); }
-        //     Some(dis) => dis
-        // };
-        let nodes = self.closest_node(&target).await;
-
+        let from_entry = NodeEntry::new(
+            from_node,
+            NodeEndpoint::from_socket(from_socket, from_socket.port()),
+        );
+        match self.check_validity(&from_entry) {
+            // should not have happened, but just in case
+            NodeValidity::Ourselves => (),
+            NodeValidity::ValidNode(_) => self.respond_with_discovery(target, &from_entry).await?,
+            invalid => {
+                self.try_ping(
+                    from_entry,
+                    PingReason::FromDiscoveryRequest(from_node, invalid),
+                )
+                .await?
+            }
+        };
         Ok(())
     }
 
@@ -407,7 +519,9 @@ impl DiscoveryInner {
             let id: NodeId = r.val_at(3)?;
 
             // not processing self
-            if id == self.id { continue; }
+            if id == self.id {
+                continue;
+            }
 
             let endpoint = NodeEndpoint::from_rlp(&r)?;
             if !endpoint.is_valid_discovery_node() {
@@ -425,9 +539,9 @@ impl DiscoveryInner {
         }
 
         // // avoid Send in rlp, just make Rust happy
-        // for n in nodes {
-        //     self.add_node(n).await?;
-        // }
+        for n in nodes {
+            self.add_node(n).await?;
+        }
 
         Ok(())
     }
@@ -509,57 +623,228 @@ impl DiscoveryInner {
     }
 
     // ========= Helper Functions =========
-    async fn closest_node(&self, target: &NodeId) -> Vec<NodeId> {
-        let mut nodes = BinaryHeap::with_capacity(BUCKET_SIZE);
-        for bucket in &self.buckets {
-            for entry in bucket {
-                if nodes.len() < BUCKET_SIZE {
-                    nodes.push(entry);
-                } else if  {
+    async fn round(&mut self) -> Result<(), Error> {
+        self.clear_expired(Instant::now());
+        self.update_new_nodes().await?;
 
-                }
+        if self.discovery_round.is_some() {
+            self.discover().await;
+            // Start discovering if the first pings have been sent (or timed out)
+        } else if self.pinging_nodes.len() == 0 && !self.discovery_initiated {
+            self.discovery_initiated = true;
+            self.refresh();
+        }
+        Ok(())
+    }
+
+    fn refresh(&mut self) {
+        if self.discovery_round.is_none() {
+            self.start_discovery();
+        }
+    }
+
+    /// Starts the discovery process at round 0
+    fn start_discovery(&mut self) {
+        log::debug!("starting discovery");
+        self.discovery_round = Some(0);
+        self.discovery_id.randomize();
+        self.discovery_nodes.clear();
+    }
+
+    /// Complete the discovery process
+    fn stop_discovery(&mut self) {
+        log::debug!("completing discovery");
+        self.discovery_round = None;
+        self.discovery_nodes.clear();
+    }
+
+    async fn discover(&mut self) {
+        let discovery_round = match self.discovery_round {
+            Some(r) => r,
+            None => return,
+        };
+        if discovery_round == DISCOVERY_MAX_STEPS {
+            self.stop_discovery();
+            return;
+        }
+        log::debug!("starting round {:?}", self.discovery_round);
+        let mut tried_count = 0;
+        {
+            let nearest = self
+                .closest_node(&self.discovery_id)
+                .into_iter()
+                .filter(|x| !self.discovery_nodes.contains(x.id()))
+                .take(ALPHA)
+                .map(|n| n.clone().clone())
+                .collect::<Vec<_>>();
+            let target = self.discovery_id;
+            for r in nearest {
+                match self.find_node(target, &r).await {
+                    Ok(()) => {
+                        self.discovery_nodes.insert(*r.id());
+                        tried_count += 1;
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "error sending node discovery packet for {:?}: {:?}",
+                            &r.endpoint(),
+                            e
+                        );
+                    }
+                };
             }
         }
-        let mut nodes = Vec::with_capacity(BUCKET_SIZE);
-        let append_nodes = |nodes: &mut Vec<NodeId>, bucket: &VecDeque<BucketEntry>| {
-            let mut candidates: Vec<BucketEntry> = bucket.iter().collect();
-            candidates.sort_unstable_by_key(|a, b| a.id_hash ^ b.id_hash);
 
-            let vacancies = nodes.capacity() - nodes.len();
-            let mut to_append = if vacancies >= candidates.len() {
-                candidates.iter().map(|e| e.node.id().clone()).collect()
+        if tried_count == 0 {
+            self.start_discovery();
+            return;
+        }
+        self.discovery_round = Some(discovery_round + 1);
+    }
+
+    async fn update_new_nodes(&mut self) -> Result<(), Error> {
+        while self.pinging_nodes.len() < MAX_NODES_PING {
+            match self.to_add.pop() {
+                Some(next) => self.try_ping(next, PingReason::Default).await?,
+                None => break,
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear expired nodes currently being pinged or found
+    fn clear_expired(&mut self, time: Instant) {
+        let mut nodes_to_expire = Vec::new();
+        self.pinging_nodes.retain(|node_id, ping_request| {
+            if time.duration_since(ping_request.send_at) > PING_TIMEOUT {
+                log::debug!("removing expired PING request for node_id={:?}", node_id);
+                nodes_to_expire.push(*node_id);
+                false
             } else {
-                candidates[..vacancies].iter().map(|e| e.node.id().clone()).collect()
-            };
-            nodes.append(&mut to_append);
+                true
+            }
+        });
+        self.finding_nodes.retain(|node_id, find_node_request| {
+            if time.duration_since(find_node_request.sent_at) > FIND_NODE_TIMEOUT {
+                if !find_node_request.answered {
+                    log::debug!(
+                        "removing expired FIND NODE request for node_id={:?}",
+                        node_id
+                    );
+                    nodes_to_expire.push(*node_id);
+                }
+                false
+            } else {
+                true
+            }
+        });
+        for node_id in nodes_to_expire {
+            self.expire_node_request(node_id);
+        }
+    }
 
-            nodes.len() == BUCKET_SIZE
+    fn expire_node_request(&mut self, node_id: NodeId) {
+        // Attempt to remove from bucket if in one.
+        let id_hash = keccak(node_id.as_bytes());
+        let dist = distance(&self.id_hash, &id_hash).expect(
+            "distance is None only if id hashes are equal; will never send request to self; qed",
+        );
+        let bucket = &mut self.buckets[dist];
+        if let Some(index) = bucket.iter().position(|n| n.id_hash == id_hash) {
+            if bucket[index].fail_count < REQUEST_BACKOFF.len() {
+                let entry = &mut bucket[index];
+                entry.backoff_until = Instant::now() + REQUEST_BACKOFF[entry.fail_count];
+                entry.fail_count += 1;
+                log::debug!(
+                    "requests to node {:?} timed out {} consecutive time(s)",
+                    &entry.node.id(),
+                    entry.fail_count
+                );
+            } else {
+                let node = bucket
+                    .remove(index)
+                    .expect("index was located in if condition");
+                log::debug!("removed expired node {:?}", &node.node.id());
+            }
+        }
+    }
+
+    async fn respond_with_discovery(
+        &mut self,
+        target: NodeId,
+        node: &NodeEntry,
+    ) -> Result<(), Error> {
+        let nearest_nodes = self.closest_node(&target);
+        if nearest_nodes.is_empty() {
+            return Ok(());
+        }
+
+        for packet in prepare_discovery_packet(&nearest_nodes) {
+            self.send_packet(PACKET_NEIGHBOURS, &packet, node.endpoint().address)
+                .await?;
+        }
+
+        log::debug!(
+            "sent {} neighbours to {:?}",
+            nearest_nodes.len(),
+            &node.endpoint()
+        );
+        Ok(())
+    }
+
+    fn check_validity(&mut self, node: &NodeEntry) -> NodeValidity {
+        let id_hash = keccak(node.id().as_bytes());
+        let dist = match distance(&self.id_hash, &id_hash) {
+            Some(dist) => dist,
+            None => {
+                log::debug!("got an incoming discovery request from self: {:?}", node);
+                return NodeValidity::Ourselves;
+            }
         };
 
-        let target_distance = self.id_hash ^ keccak(target.as_bytes());
+        let bucket = &self.buckets[dist];
+        if let Some(entry) = bucket.iter().find(|n| n.node.id() == node.id()) {
+            log::debug!(
+                "found a known node in a bucket when processing discovery: {:?} / {:?}",
+                entry.node,
+                node
+            );
+            match (
+                (entry.node.endpoint() == node.endpoint()),
+                (entry.last_seen.elapsed() < NODE_LAST_SEEN_TIMEOUT),
+            ) {
+                (true, true) => NodeValidity::ValidNode(NodeCategory::Bucket),
+                (true, false) => NodeValidity::ExpiredNode(NodeCategory::Bucket),
+                _ => NodeValidity::UnknownNode,
+            }
+        } else {
+            self.other_observed_nodes.get_mut(node.id()).map_or(
+                NodeValidity::UnknownNode,
+                |(endpoint, observed_at)| match (
+                    (node.endpoint() == endpoint),
+                    (observed_at.elapsed() < NODE_LAST_SEEN_TIMEOUT),
+                ) {
+                    (true, true) => NodeValidity::ValidNode(NodeCategory::Observed),
+                    (true, false) => NodeValidity::ExpiredNode(NodeCategory::Observed),
+                    _ => NodeValidity::UnknownNode,
+                },
+            )
+        }
+    }
 
-        for i in 0..ADDRESS_BITS_SIZE {
-            // the distance bit at i is set
-            if target_distance[i / 8] & 1 << i % 8 == 1 {
-                // target distance at index 0 corresponds to
-                // the max 8 bits of the bucket, need to reverse
-                let bucket = &self.buckets[ADDRESS_BITS_SIZE - 1 - i];
-                if !bucket.is_empty() && append_nodes(&mut nodes, bucket) {
-                    return nodes;
-                }
+    fn closest_node(&self, target: &NodeId) -> Vec<&NodeEntry> {
+        let target_hash = keccak(target.as_bytes());
+        let mut finder = NearestBucketsFinder {
+            capacity: BUCKET_SIZE,
+            target_hash: target_hash.clone(),
+            nodes: BinaryHeap::new(),
+        };
+        for bucket in &self.buckets {
+            for entry in bucket {
+                finder.push(entry);
             }
         }
-
-        for i in (0..ADDRESS_BITS_SIZE).rev() {
-            // the distance bit at i is set
-            if target_distance[i / 8] & 1 << i % 8 == 0 {
-                let bucket = &self.buckets[ADDRESS_BITS_SIZE - 1 - i];
-                if !bucket.is_empty() && append_nodes(&mut nodes, bucket) {
-                    return nodes;
-                }
-            }
-        }
-        vec![]
+        finder.dump(|i| &i.entry.node)
     }
 
     async fn update_node(&mut self, n: NodeEntry) -> Result<(), Error> {
@@ -599,7 +884,7 @@ impl DiscoveryInner {
     /// Only update the entries in bucket
     fn update_bucket(&mut self, n: NodeEntry) -> Result<(), Error> {
         let hash = keccak(n.id().as_bytes());
-        let distance = Self::distance(&hash, &self.id_hash).ok_or(Error::NodeIsSelf)?;
+        let distance = distance(&hash, &self.id_hash).ok_or(Error::NodeIsSelf)?;
         self.buckets[distance]
             .iter_mut()
             .find(|v| v.node.id() == n.id())
@@ -674,7 +959,7 @@ impl DiscoveryInner {
             PingNodeRequest {
                 node: e,
                 reason,
-                timestamp: Instant::now(),
+                send_at: Instant::now(),
                 hash,
             },
         );
@@ -699,21 +984,38 @@ impl DiscoveryInner {
     fn is_allowed(&self, node_id: &NodeId) -> bool {
         !self.not_allowed.contains(node_id)
     }
+}
 
-    /// Calculate the node distances based on XOR
-    fn distance(a: &H256, b: &H256) -> Option<usize> {
-        let mut lz = 0;
-        for i in 0..ADDRESS_BYTES_SIZE {
-            let d: u8 = a[i] ^ b[i];
-            if d == 0 {
-                lz += 8;
-            } else {
-                lz += d.leading_zeros() as usize;
-                return Some(ADDRESS_BYTES_SIZE * 8 - lz - 1); // -1 as index
-            }
+fn prepare_discovery_packet(nearest: &[&NodeEntry]) -> Vec<Bytes> {
+    let limit = (UDP_MAX_PACKET_SIZE - 109) / 90;
+    let chunks = nearest.chunks(limit);
+    let packets = chunks.map(|c| {
+        let mut rlp = RLPStream::new_list(2);
+        rlp.begin_list(c.len());
+        for n in c {
+            rlp.begin_list(4);
+            n.endpoint().to_rlp(&mut rlp);
+            rlp.append(n.id());
         }
-        None
+        append_expiration(&mut rlp);
+        rlp.out()
+    });
+    packets.collect()
+}
+
+/// Calculate the node distances based on XOR
+fn distance(a: &H256, b: &H256) -> Option<usize> {
+    let mut lz = 0;
+    for i in 0..ADDRESS_BYTES_SIZE {
+        let d: u8 = a[i] ^ b[i];
+        if d == 0 {
+            lz += 8;
+        } else {
+            lz += d.leading_zeros() as usize;
+            return Some(ADDRESS_BYTES_SIZE * 8 - lz - 1); // -1 as index
+        }
     }
+    None
 }
 
 fn append_expiration(rlp: &mut RLPStream) {
@@ -820,6 +1122,20 @@ mod tests {
                 NodeId::random(),
                 SocketAddr::from_str("0.0.0.0:30303").unwrap(),
             )
-            .await.unwrap();
+            .await
+            .unwrap();
     }
+
+    // #[test]
+    // async fn nearest_nodes_fewer_than_bucket_limit_works() {
+    //     let mut mock_inner = mock_discovery_inner();
+    //     mock_inner.buckets[]
+    //     mock_inner
+    //         .on_neighbours(
+    //             &packet,
+    //             NodeId::random(),
+    //             SocketAddr::from_str("0.0.0.0:30303").unwrap(),
+    //         )
+    //         .await.unwrap();
+    // }
 }

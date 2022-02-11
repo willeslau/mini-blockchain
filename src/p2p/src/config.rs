@@ -12,6 +12,13 @@ pub struct HostInfo {
 }
 
 impl HostInfo {
+    pub fn new(key_pair: KeyPair, endpoint: NodeEndpoint) -> Self {
+        Self {
+            key_pair: Some(key_pair),
+            public_endpoint: Some(endpoint),
+        }
+    }
+
     pub fn key_pair(&self) -> KeyPair {
         match &self.key_pair {
             None => KeyPair::random(),
