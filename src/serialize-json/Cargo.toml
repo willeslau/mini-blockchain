@@ -1,0 +1,12 @@
+[package]
+name = "serialize-json"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "1.0"
+serde_json = "1.0"
+serde_derive = "1.0"
+ethbloom = "0.12.1"
+rustc-hex = "2.1.0"
+common = { path = "../common" }

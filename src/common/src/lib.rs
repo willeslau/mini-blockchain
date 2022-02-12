@@ -6,6 +6,7 @@ pub use crate::error::*;
 pub use crate::hash::*;
 pub use crate::helper::*;
 pub use crate::num::*;
+pub use crate::uint::*;
 #[cfg(any(feature = "std"))]
 pub use crate::serialization::{from_vec, to_vec};
 
@@ -17,6 +18,7 @@ mod serialization;
 mod error;
 mod num;
 mod crypto;
+mod uint;
 
 use lazy_static::lazy_static;
 

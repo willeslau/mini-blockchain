@@ -7,10 +7,19 @@ use crate::Error;
 
 pub const HASH_LENGTH: usize = 32;
 
+construct_fixed_hash! {
+    #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+    pub struct H160(20);
+}
+construct_fixed_hash! {
+    #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+    pub struct H256(32);
+}
+
 construct_fixed_hash! { pub struct H520(65); }
 construct_fixed_hash! { pub struct H512(64); }
-construct_fixed_hash! { pub struct H256(32); }
 construct_fixed_hash! { pub struct H128(16); }
+construct_fixed_hash! { pub struct H64(8); }
 
 /// Add RLP serialization support to a fixed-sized hash type created by `construct_fixed_hash!`.
 #[macro_export]
