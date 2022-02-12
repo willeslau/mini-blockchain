@@ -188,7 +188,7 @@ impl Discovery {
         let (udp_tx, mut udp_rx) = mpsc::channel(1024);
         let (request_tx, mut request_rx) = mpsc::channel(1024);
 
-        log::info!(
+        log::debug!(
             "discovery starting udp at {:}",
             info.public_endpoint().udp_address()
         );
@@ -234,7 +234,7 @@ impl Discovery {
                     }
                 }
             }
-            log::info!("discovery ended");
+            log::debug!("discovery ended");
         });
 
         Ok(Self {
@@ -624,7 +624,7 @@ impl DiscoveryInner {
                 }
                 let meta = entry.remove();
                 if let PingReason::FromDiscoveryRequest(node_id, _validity) = meta.reason {
-                    log::info!("node id: {:?}", node_id);
+                    log::debug!("node id: {:?}", node_id);
                 } else {
                     self.update_node(meta.node).await?;
                 }
@@ -929,7 +929,7 @@ impl DiscoveryInner {
 
     async fn try_ping(&mut self, e: NodeEntry, reason: PingReason) -> Result<(), Error> {
         if !self.is_allowed(e.id()) {
-            log::info!("node id {} not allowed", e.id());
+            log::debug!("node id {} not allowed", e.id());
             return Err(Error::NodeBlocked);
         }
 
@@ -941,10 +941,10 @@ impl DiscoveryInner {
         }
 
         if self.pinging_nodes.len() < MAX_NODES_PING {
-            log::info!("pinging node id {}", e.id());
+            log::debug!("pinging node id {}", e.id());
             self.ping(e, reason).await
         } else {
-            log::info!(
+            log::debug!(
                 "pinging nodes full, add node id {} to pending nodes",
                 e.id()
             );
