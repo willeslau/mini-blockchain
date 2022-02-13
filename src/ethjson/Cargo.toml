@@ -1,5 +1,5 @@
 [package]
-name = "serialize-json"
+name = "ethjson"
 version = "0.1.0"
 edition = "2021"
 

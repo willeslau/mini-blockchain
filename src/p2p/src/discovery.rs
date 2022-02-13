@@ -1071,7 +1071,7 @@ fn assemble_packet(packet_id: u8, bytes: &[u8], secret: &Secret) -> Result<Bytes
 
 #[cfg(test)]
 mod tests {
-    use crate::discovery::{DiscoveryInner, ADDRESS_BYTES_SIZE};
+    use crate::discovery::{DiscoveryInner, ADDRESS_BYTES_SIZE, distance};
     use crate::node::NodeId;
     use crate::{HostInfo, NodeTable};
     use common::{keccak, H256};
@@ -1101,7 +1101,7 @@ mod tests {
             27, 10, 90, 228, 69, 143, 90, 18, 117, 49, 186, 231, 5,
         ]);
 
-        let result = DiscoveryInner::distance(&a, &b);
+        let result = distance(&a, &b);
         assert_eq!(result, Some(247));
     }
 

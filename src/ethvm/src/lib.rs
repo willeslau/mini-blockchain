@@ -1,6 +1,11 @@
-mod return_data;
-
-pub use return_data::*;
+mod cost;
+mod error;
+mod gas;
+mod instructions;
+mod interpreter;
+mod memory;
+mod stack;
+mod types;
 
 #[cfg(test)]
 mod tests {

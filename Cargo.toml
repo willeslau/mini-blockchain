@@ -5,3 +5,5 @@ authors = ["willesxm <willeslau@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+vm = { path = "src/vm" }
+evm = { path = "src/evm" }

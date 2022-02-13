@@ -25,22 +25,22 @@ pub struct VecStack<S> {
     logs: [S; instructions::MAX_NO_OF_TOPICS],
 }
 
-impl <S: Copy> VecStack<S> {
+impl<S: Copy> VecStack<S> {
     pub fn with_capacity(capacity: usize, zero: S) -> Self {
         Self {
             stack: Vec::with_capacity(capacity),
-            logs: [zero; instructions::MAX_NO_OF_TOPICS]
+            logs: [zero; instructions::MAX_NO_OF_TOPICS],
         }
     }
 }
 
-impl <S> Stack<S> for VecStack<S> {
+impl<S> Stack<S> for VecStack<S> {
     fn peek(&self, no_from_top: usize) -> &S {
         &self.stack[self.stack.len() - no_from_top - 1]
     }
 
     fn swap_with_top(&mut self, no_from_top: usize) {
-        let l1 = self.stack.len()-1;
+        let l1 = self.stack.len() - 1;
         let l2 = self.stack.len() - no_from_top - 1;
         self.stack.swap(l1, l2);
     }
@@ -61,7 +61,9 @@ impl <S> Stack<S> for VecStack<S> {
         &self.logs
     }
 
-    fn push(&mut self, elem: S) { self.stack.push(elem); }
+    fn push(&mut self, elem: S) {
+        self.stack.push(elem);
+    }
 
     fn size(&self) -> usize {
         self.stack.len()

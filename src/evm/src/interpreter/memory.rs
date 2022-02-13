@@ -29,14 +29,18 @@ pub trait Memory {
 fn is_valid_range(offset: usize, size: usize) -> bool {
     match offset.checked_add(size) {
         None => false,
-        Some(_) => size > 0
+        Some(_) => size > 0,
     }
 }
 
 impl Memory for Vec<u8> {
-    fn size(&self) -> usize { self.len() }
+    fn size(&self) -> usize {
+        self.len()
+    }
 
-    fn resize(&mut self, new_size: usize) { self.resize(new_size, 0u8) }
+    fn resize(&mut self, new_size: usize) {
+        self.resize(new_size, 0u8)
+    }
 
     fn expand(&mut self, new_size: usize) {
         if new_size > self.len() {
@@ -51,7 +55,7 @@ impl Memory for Vec<u8> {
 
     fn write(&mut self, offset: U256, value: U256) {
         let offset = offset.low_u64() as usize;
-        value.to_big_endian(&mut self[offset..offset+32])
+        value.to_big_endian(&mut self[offset..offset + 32])
     }
 
     fn read(&self, offset: U256) -> U256 {
@@ -107,7 +111,6 @@ impl Memory for Vec<u8> {
         ReturnData::new(self, off, len)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

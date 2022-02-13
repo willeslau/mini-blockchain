@@ -7,6 +7,9 @@ pub use crate::hash::*;
 pub use crate::helper::*;
 pub use crate::num::*;
 pub use crate::uint::*;
+
+pub type Address = H160;
+
 #[cfg(any(feature = "std"))]
 pub use crate::serialization::{from_vec, to_vec};
 

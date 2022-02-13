@@ -33,6 +33,7 @@ pub fn recover(signature: &H520, message: &H256) -> Result<Public, Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
     use crate::crypto::ecdh::agree;
     use crate::{Public, Secret};
 

@@ -1,3 +1,4 @@
+mod evm;
 mod instructions;
 mod interpreter;
 
