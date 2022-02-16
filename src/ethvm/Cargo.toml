@@ -8,3 +8,10 @@ edition = "2021"
 [dependencies]
 common = { path = "../common" }
 lazy_static = "1.0"
+
+[dev-dependencies]
+rustc-hex = "2.1.0"
+
+[profile.dev]
+opt-level = 0  # Controls the --opt-level the compiler builds with
+debug = true

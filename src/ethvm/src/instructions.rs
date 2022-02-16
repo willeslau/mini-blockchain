@@ -343,7 +343,7 @@ impl Instruction {
 
     /// Returns number of bytes to read for `PUSHN` instruction
     /// PUSH1 -> 1
-    pub fn push_bytes(&self) -> Option<usize> {
+    pub fn data_bytes(&self) -> Option<usize> {
         if self.is_push() {
             Some(((*self as u8) - (PUSH1 as u8) + 1) as usize)
         } else {
@@ -617,9 +617,9 @@ mod tests {
 
     #[test]
     fn test_get_push_bytes() {
-        assert_eq!(PUSH1.push_bytes(), Some(1));
-        assert_eq!(PUSH3.push_bytes(), Some(3));
-        assert_eq!(PUSH32.push_bytes(), Some(32));
+        assert_eq!(PUSH1.data_bytes(), Some(1));
+        assert_eq!(PUSH3.data_bytes(), Some(3));
+        assert_eq!(PUSH32.data_bytes(), Some(32));
     }
 
     #[test]

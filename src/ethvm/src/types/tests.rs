@@ -1,22 +1,10 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
-
-use crate::access_list::AccessList;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use common::{Address, H256, keccak, U256};
 use crate::error::Error;
-use crate::Bytes;
-use common::keccak;
-use common::{Address, H256, U256};
-// use crate::CallType;
-use crate::ContractCreateResult;
-use crate::CreateContractAddress;
-use crate::EnvInfo;
-use crate::Ext;
-use crate::GasLeft;
-use crate::MessageCallResult;
-use crate::ReturnData;
-use crate::Schedule;
+use crate::types::{Bytes, ContractCreateResult, CreateContractAddress, Ext, GasLeft, MessageCallResult, ReturnData, Schedule};
+use crate::types::access_list::AccessList;
+use crate::types::env_info::EnvInfo;
 
 pub struct FakeLogEntry {
     pub topics: Vec<H256>,
@@ -79,6 +67,53 @@ impl FakeExt {
     pub fn new() -> Self {
         FakeExt::default()
     }
+
+    // /// New fake externalities with byzantium schedule rules
+    // pub fn new_byzantium() -> Self {
+    //     let mut ext = FakeExt::default();
+    //     ext.schedule = Schedule::new_byzantium();
+    //     ext
+    // }
+    //
+    // /// New fake externalities with constantinople schedule rules
+    // pub fn new_constantinople() -> Self {
+    //     let mut ext = FakeExt::default();
+    //     ext.schedule = Schedule::new_constantinople();
+    //     ext
+    // }
+    //
+    // /// New fake externalities with Istanbul schedule rules
+    // pub fn new_istanbul() -> Self {
+    //     let mut ext = FakeExt::default();
+    //     ext.schedule = Schedule::new_istanbul();
+    //     ext
+    // }
+    //
+    // /// New fake externalities with Berlin schedule rules
+    // pub fn new_berlin(from: Address, to: Address, builtins: &[Address]) -> Self {
+    //     let mut ext = FakeExt::default();
+    //     ext.schedule = Schedule::new_berlin();
+    //     ext.access_list.enable();
+    //     ext.access_list.insert_address(from);
+    //     ext.access_list.insert_address(to);
+    //     for builtin in builtins {
+    //         ext.access_list.insert_address(*builtin);
+    //     }
+    //     ext
+    // }
+    //
+    // /// New fake externalities with London schedule rules
+    // pub fn new_london(from: Address, to: Address, builtins: &[Address]) -> Self {
+    //     let mut ext = FakeExt::new_berlin(from, to, builtins);
+    //     ext.schedule = Schedule::new_london();
+    //     ext
+    // }
+    //
+    // /// Alter fake externalities to allow wasm
+    // pub fn with_wasm(mut self) -> Self {
+    //     self.schedule.wasm = Some(Default::default());
+    //     self
+    // }
 
     /// Set chain ID
     pub fn with_chain_id(mut self, chain_id: u64) -> Self {

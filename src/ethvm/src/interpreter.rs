@@ -2,37 +2,47 @@ use crate::cost::CostType;
 use crate::error::Error;
 use crate::instructions::Instruction;
 use crate::memory::Memory;
-use crate::stack::VecStack;
-use crate::types::{Exec, Ext, GasLeft};
+use crate::stack::{Stack, VecStack};
+use crate::types::{Bytes, Exec, Ext, GasLeft};
 use crate::gas::GasMeter;
 use common::U256;
 
+type ProgramCounter = usize;
+
 struct CodeReader {
     /// The code to be executed
-    code: Vec<u8>,
+    code: Bytes,
     /// The position of where the code is
-    position: usize,
+    position: ProgramCounter,
 }
 
 impl CodeReader {
-    fn instruction(&self) -> Instruction {
-        Instruction::from_u8(self.code[self.position]).expect("invalid instruction code.qed")
+    fn instruction(&mut self) -> Instruction {
+        let pos = self.position;
+        self.position += 1;
+        Instruction::from_u8(self.code[pos]).expect("invalid instruction code.qed")
     }
 
-    fn bytes(&self, instruction: &Instruction) -> &[u8] {
-        match instruction {
-            _ => &self.code,
-        }
+    fn done(&self) -> bool {
+        self.position >= self.code.len()
     }
 
-    fn read_words(&self, instruction: &Instruction) -> Vec<U256> {
-        vec![U256::zero()]
-    }
-
-    fn advance(&mut self, bytes: usize) {
+    fn read_word(&mut self, bytes: usize) -> U256 {
+        let pos = self.position;
         self.position += bytes;
-        if self.position > self.code.len() {
-            panic!("invalid source code len. qed.")
+        let end = self.position.min(self.code.len());
+        U256::from(&self.code[pos..end])
+    }
+}
+
+enum GasRequirement<G: CostType> {
+    Default(G)
+}
+
+impl <G: CostType> GasRequirement<G> {
+    fn gas(&self) -> &G {
+        match self {
+            GasRequirement::Default(g) => g
         }
     }
 }
@@ -78,8 +88,15 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
 
         self.validate_instruction(&instruction)?;
 
-        let gas = self.derive_gas();
-        sekf.validate_gas(&gas)?;
+        // NOTE: I think here is where Rust can handle relatively easier compared
+        // NOTE: to other language. When handling some function that might involve
+        // NOTE: multiple functions but also contain similar steps, i.e. in gas
+        // NOTE: calculation, we might need to check the memory stack then expand
+        // NOTE: the memory, it involves similar step to parse the instruction.
+        // NOTE: In this case, we can use enum to handle and return all the
+        // NOTE: parameters to avoid duplicated calculations.
+        let requirement = self.derive_gas_requirement(&instruction);
+        self.validate_gas(requirement.gas())?;
 
         // expand memory to the required size
         self.memory.expand(0);
@@ -87,12 +104,34 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
         self.exec_instruction(&instruction)
     }
 
+    fn validate_gas(&self, gas: &G) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn validate_instruction(&self, instruction: &Instruction) -> Result<(), Error> {
         Ok(())
     }
 
-    fn derive_gas(&self) -> G {
-        G::from(0)
+    fn derive_gas_requirement(&self, instruction: &Instruction) -> GasRequirement<G> {
+        GasRequirement::Default(G::from(0))
+    }
+
+    fn exec_instruction(&mut self, instruction: &Instruction) -> Result<StepResult, Error> {
+        let mut r = match instruction {
+            Instruction::PUSH1 => {
+                let bytes = instruction.data_bytes().expect("invalid push read bytes. qed");
+                let word = self.reader.read_word(bytes);
+                self.stack.push(word);
+                StepResult::Continue
+            },
+            _ => StepResult::Success,
+        };
+
+        if self.reader.done() {
+            r = StepResult::Success;
+        }
+
+        Ok(r)
     }
 }
 
@@ -101,13 +140,14 @@ mod tests {
     use crate::interpreter::Interpreter;
     use std::thread;
     use std::time::Duration;
+    use rustc_hex::FromHex;
+    use crate::types::{Exec, FakeExt};
 
     #[test]
-    fn debug_works() {
-        let a = 1;
-        let b = 2;
-        let c = a + b;
-        // let i = Interpreter::new();
-        // thread::sleep(Duration::from_millis(1000));
+    fn push_works() {
+        let mut ext = FakeExt::new();
+        let code = "60806040".from_hex().unwrap();
+        let mut interpreter = Interpreter::<Vec<u8>, usize>::new(code, 100000);
+        interpreter.exec(&mut ext);
     }
 }

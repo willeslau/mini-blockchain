@@ -3,6 +3,14 @@ mod ext;
 mod return_data;
 mod schedule;
 
+#[cfg(test)]
+mod tests;
+
+mod access_list;
+
+#[cfg(test)]
+pub use tests::*;
+
 use crate::error::Error;
 pub use ext::*;
 pub use return_data::*;
