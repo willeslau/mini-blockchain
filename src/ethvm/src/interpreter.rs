@@ -95,7 +95,7 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
         // NOTE: the memory, it involves similar step to parse the instruction.
         // NOTE: In this case, we can use enum to handle and return all the
         // NOTE: parameters to avoid duplicated calculations.
-        let requirement = self.derive_gas_requirement(&instruction);
+        let requirement = self.derive_gas_requirement(&instruction, ext);
         self.validate_gas(requirement.gas())?;
 
         // expand memory to the required size
@@ -112,8 +112,16 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
         Ok(())
     }
 
-    fn derive_gas_requirement(&self, instruction: &Instruction) -> GasRequirement<G> {
-        GasRequirement::Default(G::from(0))
+    fn derive_gas_requirement(&self, instruction: &Instruction, ext: &dyn Ext) -> GasRequirement<G> {
+        let schedule = ext.schedule();
+
+        let tier = instruction.info().tier.idx();
+        let default_gas = G::from(schedule.tier_step_gas[tier]);
+
+        match instruction {
+            _ => GasRequirement::Default(default_gas)
+        }
+
     }
 
     fn exec_instruction(&mut self, instruction: &Instruction) -> Result<StepResult, Error> {
