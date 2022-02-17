@@ -3,9 +3,9 @@ use crate::error::Error;
 use crate::instructions::{Instruction, InstructionInfo};
 use crate::stack::VecStack;
 
+use crate::types::{Ext, Schedule};
 use common::{Address, U256};
 use std::cmp;
-use crate::types::{Ext, Schedule};
 
 macro_rules! overflowing {
     ($x: expr) => {{
@@ -29,6 +29,20 @@ pub struct InstructionRequirements<Cost> {
     pub provide_gas: Option<Cost>,
     pub memory_total_gas: Cost,
     pub memory_required_size: usize,
+}
+
+pub enum InstructionGasRequirement<G: CostType> {
+    Default(G),
+    Mem { gas: G, mem_gas: G, mem_size: usize },
+}
+
+impl<G: CostType> InstructionGasRequirement<G> {
+    pub fn gas(&self) -> &G {
+        match self {
+            InstructionGasRequirement::Default(g) => g,
+            InstructionGasRequirement::Mem { gas: g, .. } => g,
+        }
+    }
 }
 
 pub(crate) struct GasMeter<Gas: CostType> {
@@ -160,6 +174,32 @@ impl<Gas: CostType> GasMeter<Gas> {
             },
             _ => todo!(),
         })
+    }
+
+    pub fn instruction_requirement(
+        &self,
+        instruction: &Instruction,
+        ext: &dyn Ext,
+    ) -> InstructionGasRequirement<Gas> {
+        let schedule = ext.schedule();
+
+        let tier = instruction.info().tier.idx();
+        let default_gas = G::from(schedule.tier_step_gas[tier]);
+
+        match instruction {
+            Instruction::MSTORE => {
+                let mem_size = mem_add_size(self.memory.size(), WORD_BYTES_SIZE);
+                let mem_gas = mem_size
+                    .checked_mul(schedule.memory_gas)
+                    .expect("overflown");
+                InstructionGasRequirement::Mem {
+                    gas: not_overflow!(default_gas.overflow_add(G::from(mem_gas))),
+                    mem_gas,
+                    mem_size,
+                }
+            }
+            _ => InstructionGasRequirement::Default(default_gas),
+        }
     }
 }
 

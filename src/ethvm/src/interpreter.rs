@@ -1,13 +1,25 @@
 use crate::cost::CostType;
 use crate::error::Error;
+use crate::gas::{GasMeter, InstructionGasRequirement};
 use crate::instructions::Instruction;
 use crate::memory::Memory;
 use crate::stack::{Stack, VecStack};
 use crate::types::{Bytes, Exec, Ext, GasLeft};
-use crate::gas::GasMeter;
 use common::U256;
 
 type ProgramCounter = usize;
+const WORD_BYTES_SIZE: usize = 32;
+
+// #[macro_export]
+macro_rules! not_overflow {
+    ($tuple: expr) => {
+        if $tuple.1 {
+            panic!("overflow");
+        } else {
+            $tuple.0
+        }
+    };
+}
 
 struct CodeReader {
     /// The code to be executed
@@ -35,18 +47,6 @@ impl CodeReader {
     }
 }
 
-enum GasRequirement<G: CostType> {
-    Default(G)
-}
-
-impl <G: CostType> GasRequirement<G> {
-    fn gas(&self) -> &G {
-        match self {
-            GasRequirement::Default(g) => g
-        }
-    }
-}
-
 enum StepResult {
     Continue,
     Error(Error),
@@ -60,7 +60,7 @@ pub struct Interpreter<M: Memory, G: CostType> {
     gas_meter: GasMeter<G>,
 }
 
-impl <M: Memory, G: CostType> Exec for Interpreter<M, G> {
+impl<M: Memory, G: CostType> Exec for Interpreter<M, G> {
     fn exec(&mut self, ext: &mut dyn Ext) -> Result<GasLeft, Error> {
         loop {
             match self.step(ext)? {
@@ -79,7 +79,7 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
             reader,
             stack: VecStack::with_capacity(1024, U256::zero()),
             memory: M::empty(),
-            gas_meter: GasMeter::new(gas_limit)
+            gas_meter: GasMeter::new(gas_limit),
         }
     }
 
@@ -95,11 +95,18 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
         // NOTE: the memory, it involves similar step to parse the instruction.
         // NOTE: In this case, we can use enum to handle and return all the
         // NOTE: parameters to avoid duplicated calculations.
-        let requirement = self.derive_gas_requirement(&instruction, ext);
+        let requirement = self.gas_meter.instruction_requirement(&instruction, ext);
         self.validate_gas(requirement.gas())?;
 
         // expand memory to the required size
-        self.memory.expand(0);
+        if let InstructionGasRequirement::Mem {
+            gas: default,
+            mem_gas,
+            mem_size,
+        } = requirement
+        {
+            self.memory.expand(mem_size);
+        }
 
         self.exec_instruction(&instruction)
     }
@@ -112,26 +119,16 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
         Ok(())
     }
 
-    fn derive_gas_requirement(&self, instruction: &Instruction, ext: &dyn Ext) -> GasRequirement<G> {
-        let schedule = ext.schedule();
-
-        let tier = instruction.info().tier.idx();
-        let default_gas = G::from(schedule.tier_step_gas[tier]);
-
-        match instruction {
-            _ => GasRequirement::Default(default_gas)
-        }
-
-    }
-
     fn exec_instruction(&mut self, instruction: &Instruction) -> Result<StepResult, Error> {
         let mut r = match instruction {
             Instruction::PUSH1 => {
-                let bytes = instruction.data_bytes().expect("invalid push read bytes. qed");
+                let bytes = instruction
+                    .data_bytes()
+                    .expect("invalid push read bytes. qed");
                 let word = self.reader.read_word(bytes);
                 self.stack.push(word);
                 StepResult::Continue
-            },
+            }
             _ => StepResult::Success,
         };
 
@@ -143,18 +140,22 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
     }
 }
 
+fn mem_add_size(current: usize, to_add: usize) -> usize {
+    current.checked_add(to_add).expect("oom")
+}
+
 #[cfg(test)]
 mod tests {
     use crate::interpreter::Interpreter;
+    use crate::types::{Exec, FakeExt};
+    use rustc_hex::FromHex;
     use std::thread;
     use std::time::Duration;
-    use rustc_hex::FromHex;
-    use crate::types::{Exec, FakeExt};
 
     #[test]
     fn push_works() {
         let mut ext = FakeExt::new();
-        let code = "60806040".from_hex().unwrap();
+        let code = "6080604052".from_hex().unwrap();
         let mut interpreter = Interpreter::<Vec<u8>, usize>::new(code, 100000);
         interpreter.exec(&mut ext);
     }

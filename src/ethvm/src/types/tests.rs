@@ -1,10 +1,13 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use common::{Address, H256, keccak, U256};
 use crate::error::Error;
-use crate::types::{Bytes, ContractCreateResult, CreateContractAddress, Ext, GasLeft, MessageCallResult, ReturnData, Schedule};
 use crate::types::access_list::AccessList;
 use crate::types::env_info::EnvInfo;
+use crate::types::{
+    Bytes, ContractCreateResult, CreateContractAddress, Ext, GasLeft, MessageCallResult,
+    ReturnData, Schedule,
+};
+use common::{keccak, Address, H256, U256};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 pub struct FakeLogEntry {
     pub topics: Vec<H256>,

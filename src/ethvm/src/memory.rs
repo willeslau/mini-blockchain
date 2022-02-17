@@ -4,7 +4,9 @@ use common::U256;
 const MAX_RETURN_WASTE_BYTES: usize = 16384;
 
 pub trait Memory {
-    fn empty() -> Self where Self: Sized;
+    fn empty() -> Self
+    where
+        Self: Sized;
     /// Retrieve current size of the memory
     fn size(&self) -> usize;
     /// Resize (shrink or expand) the memory to specified size (fills 0)
