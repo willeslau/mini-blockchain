@@ -7,6 +7,18 @@ use crate::types::{Ext, Schedule};
 use common::{Address, U256};
 use std::cmp;
 
+const WORD_BYTES_SIZE: usize = 32;
+
+macro_rules! not_overflow {
+    ($tuple: expr) => {
+        if $tuple.1 {
+            panic!("overflow");
+        } else {
+            $tuple.0
+        }
+    };
+}
+
 macro_rules! overflowing {
     ($x: expr) => {{
         let (v, overflow) = $x;
@@ -143,37 +155,21 @@ impl<Gas: CostType> GasMeter<Gas> {
         Ok((mem_gas_cost, new_mem_gas, req_mem_size_rounded.as_usize()))
     }
 
-    /// Determine how much gas is used by the given instruction, given the machine's state.
-    ///
-    /// We guarantee that the final element of the returned tuple (`provided`) will be `Some`
-    /// iff the `instruction` is one of `CREATE`, or any of the `CALL` variants. In this case,
-    /// it will be the amount of gas that the current context provides to the child context.
-    pub fn requirements(
-        &mut self,
-        ext: &dyn Ext,
-        instruction: Instruction,
-        info: &InstructionInfo,
-        stack: &VecStack<U256>,
-        current_address: &Address,
-        current_mem_size: usize,
-    ) -> Result<InstructionRequirements<Gas>, Error> {
-        let schedule = ext.schedule();
-        let tier = info.tier.idx();
-        let default_gas = Gas::from(schedule.tier_step_gas[tier]);
+    pub fn total_gas(&self) -> Gas {
+        self.current_gas + self.current_gas
+    }
 
-        let cost = match instruction {
-            _ => Request::Gas(default_gas),
-        };
-
-        Ok(match cost {
-            Request::Gas(gas) => InstructionRequirements {
-                gas_cost: gas,
-                provide_gas: None,
-                memory_required_size: 0,
-                memory_total_gas: self.current_mem_gas,
+    pub fn update(&mut self, r: &InstructionGasRequirement<Gas>) -> Result<(), Error> {
+        match r {
+            InstructionGasRequirement::Default(g) => {
+                self.current_gas = not_overflow!(self.current_gas.overflow_add(*g));
             },
-            _ => todo!(),
-        })
+            InstructionGasRequirement::Mem { gas, mem_gas, .. } => {
+                self.current_gas = not_overflow!(self.current_gas.overflow_add(*gas));
+                self.current_mem_gas = not_overflow!(self.current_mem_gas.overflow_add(*mem_gas));
+            }
+        }
+        Ok(())
     }
 
     pub fn instruction_requirement(
@@ -184,23 +180,28 @@ impl<Gas: CostType> GasMeter<Gas> {
         let schedule = ext.schedule();
 
         let tier = instruction.info().tier.idx();
-        let default_gas = G::from(schedule.tier_step_gas[tier]);
+        let default_gas = Gas::from(schedule.tier_step_gas[tier]);
 
         match instruction {
             Instruction::MSTORE => {
-                let mem_size = mem_add_size(self.memory.size(), WORD_BYTES_SIZE);
-                let mem_gas = mem_size
+                // let mem_size = mem_add_size(mem_size, WORD_BYTES_SIZE);
+                let mem_gas = WORD_BYTES_SIZE
                     .checked_mul(schedule.memory_gas)
                     .expect("overflown");
                 InstructionGasRequirement::Mem {
-                    gas: not_overflow!(default_gas.overflow_add(G::from(mem_gas))),
-                    mem_gas,
-                    mem_size,
+                    gas: not_overflow!(default_gas.overflow_add(Gas::from(mem_gas))),
+                    mem_gas: Gas::from(mem_gas),
+                    mem_size: WORD_BYTES_SIZE,
                 }
             }
             _ => InstructionGasRequirement::Default(default_gas),
         }
     }
+}
+
+#[inline]
+fn mem_add_size(current: usize, to_add: usize) -> usize {
+    current.checked_add(to_add).expect("oom")
 }
 
 #[inline]

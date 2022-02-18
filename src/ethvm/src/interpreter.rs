@@ -8,18 +8,6 @@ use crate::types::{Bytes, Exec, Ext, GasLeft};
 use common::U256;
 
 type ProgramCounter = usize;
-const WORD_BYTES_SIZE: usize = 32;
-
-// #[macro_export]
-macro_rules! not_overflow {
-    ($tuple: expr) => {
-        if $tuple.1 {
-            panic!("overflow");
-        } else {
-            $tuple.0
-        }
-    };
-}
 
 struct CodeReader {
     /// The code to be executed
@@ -96,22 +84,22 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
         // NOTE: In this case, we can use enum to handle and return all the
         // NOTE: parameters to avoid duplicated calculations.
         let requirement = self.gas_meter.instruction_requirement(&instruction, ext);
-        self.validate_gas(requirement.gas())?;
+        self.gas_meter.update(&requirement)?;
+        self.validate_gas()?;
 
         // expand memory to the required size
         if let InstructionGasRequirement::Mem {
-            gas: default,
-            mem_gas,
             mem_size,
+            ..
         } = requirement
         {
-            self.memory.expand(mem_size);
+            self.memory.resize(mem_size + self.memory.size());
         }
 
         self.exec_instruction(&instruction)
     }
 
-    fn validate_gas(&self, gas: &G) -> Result<(), Error> {
+    fn validate_gas(&self) -> Result<(), Error> {
         Ok(())
     }
 
@@ -128,7 +116,13 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
                 let word = self.reader.read_word(bytes);
                 self.stack.push(word);
                 StepResult::Continue
-            }
+            },
+            Instruction::MSTORE => {
+                let offset = self.stack.pop();
+                let value = self.stack.pop();
+                self.memory.write(offset, value);
+                StepResult::Continue
+            },
             _ => StepResult::Success,
         };
 
@@ -138,10 +132,6 @@ impl<M: Memory, G: CostType> Interpreter<M, G> {
 
         Ok(r)
     }
-}
-
-fn mem_add_size(current: usize, to_add: usize) -> usize {
-    current.checked_add(to_add).expect("oom")
 }
 
 #[cfg(test)]
