@@ -1,9 +1,7 @@
 //! Environment information for transaction execution.
-
-use common::keccak;
 use common::{Address, H256, U256};
 // use ethjson;
-use std::{cmp, sync::Arc};
+use std::{sync::Arc};
 
 type BlockNumber = u64;
 

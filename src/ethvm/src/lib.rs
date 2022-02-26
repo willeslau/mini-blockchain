@@ -6,6 +6,7 @@ mod interpreter;
 mod memory;
 mod stack;
 mod types;
+mod cache;
 
 #[cfg(test)]
 mod tests {

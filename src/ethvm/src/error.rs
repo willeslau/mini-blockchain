@@ -2,4 +2,6 @@
 #[derive(Debug)]
 pub enum Error {
     OutOfGas,
+    InvalidCommand,
+    InvalidJump
 }

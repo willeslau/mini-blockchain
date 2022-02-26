@@ -1,7 +1,7 @@
 //! Evm interface.
 
 use crate::error::Error;
-use common::{U128, U256, U512};
+use common::{U128, U256};
 use std::{cmp, fmt, ops};
 
 /// Cost calculation type. For low-gas usage we calculate costs using usize instead of U256

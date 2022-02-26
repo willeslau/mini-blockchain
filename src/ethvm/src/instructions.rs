@@ -341,6 +341,8 @@ impl Instruction {
         *self >= PUSH1 && *self <= PUSH32
     }
 
+    pub fn is_dup(&self) -> bool { *self >= DUP1 && *self <= DUP16 }
+
     /// Returns number of bytes to read for `PUSHN` instruction
     /// PUSH1 -> 1
     pub fn data_bytes(&self) -> Option<usize> {

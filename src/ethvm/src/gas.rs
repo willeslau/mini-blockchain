@@ -1,10 +1,10 @@
 use crate::cost::CostType;
 use crate::error::Error;
-use crate::instructions::{Instruction, InstructionInfo};
-use crate::stack::VecStack;
+use crate::instructions::{Instruction};
+use crate::stack::{Stack, VecStack};
 
 use crate::types::{Ext, Schedule};
-use common::{Address, U256};
+use common::{U256};
 use std::cmp;
 
 const WORD_BYTES_SIZE: usize = 32;
@@ -58,14 +58,16 @@ impl<G: CostType> InstructionGasRequirement<G> {
 }
 
 pub(crate) struct GasMeter<Gas: CostType> {
+    gas_limit: Gas,
     current_gas: Gas,
     current_mem_gas: Gas,
 }
 
 impl<Gas: CostType> GasMeter<Gas> {
-    pub fn new(current_gas: Gas) -> Self {
+    pub fn new(gas_limit: Gas) -> Self {
         GasMeter {
-            current_gas,
+            gas_limit,
+            current_gas: Gas::from(0),
             current_mem_gas: Gas::from(0),
         }
     }
@@ -156,7 +158,7 @@ impl<Gas: CostType> GasMeter<Gas> {
     }
 
     pub fn total_gas(&self) -> Gas {
-        self.current_gas + self.current_gas
+        self.current_mem_gas + self.current_gas
     }
 
     pub fn update(&mut self, r: &InstructionGasRequirement<Gas>) -> Result<(), Error> {
@@ -176,22 +178,24 @@ impl<Gas: CostType> GasMeter<Gas> {
         &self,
         instruction: &Instruction,
         ext: &dyn Ext,
+        stack: &VecStack<U256>
     ) -> InstructionGasRequirement<Gas> {
         let schedule = ext.schedule();
 
         let tier = instruction.info().tier.idx();
+        let v = schedule.tier_step_gas[tier];
         let default_gas = Gas::from(schedule.tier_step_gas[tier]);
 
         match instruction {
-            Instruction::MSTORE => {
-                // let mem_size = mem_add_size(mem_size, WORD_BYTES_SIZE);
-                let mem_gas = WORD_BYTES_SIZE
+            Instruction::MSTORE | Instruction::MLOAD => {
+                let mem_size = mem_add_size(stack.peek(0).as_usize(), WORD_BYTES_SIZE);
+                let mem_gas = mem_size
                     .checked_mul(schedule.memory_gas)
                     .expect("overflown");
                 InstructionGasRequirement::Mem {
                     gas: not_overflow!(default_gas.overflow_add(Gas::from(mem_gas))),
                     mem_gas: Gas::from(mem_gas),
-                    mem_size: WORD_BYTES_SIZE,
+                    mem_size,
                 }
             }
             _ => InstructionGasRequirement::Default(default_gas),

@@ -7,6 +7,8 @@ mod schedule;
 mod tests;
 
 mod access_list;
+mod action_params;
+mod call_type;
 
 #[cfg(test)]
 pub use tests::*;
@@ -15,6 +17,8 @@ use crate::error::Error;
 pub use ext::*;
 pub use return_data::*;
 pub use schedule::*;
+pub use action_params::*;
+pub use call_type::*;
 
 pub type Bytes = Vec<u8>;
 

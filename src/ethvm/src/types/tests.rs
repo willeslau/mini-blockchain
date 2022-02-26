@@ -68,7 +68,10 @@ pub fn test_finalize(res: Result<GasLeft, Error>) -> Result<U256, Error> {
 impl FakeExt {
     /// New fake externalities
     pub fn new() -> Self {
-        FakeExt::default()
+        let mut e = FakeExt::default();
+        e.schedule.tier_step_gas = [0, 2, 3, 5, 8, 10, 20, 0];
+        e.schedule.memory_gas = 3;
+        e
     }
 
     // /// New fake externalities with byzantium schedule rules
