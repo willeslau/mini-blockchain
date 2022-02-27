@@ -18,3 +18,4 @@ Cargo.lock
 
 .idea
 **/.idea/**
+.DS_Store
