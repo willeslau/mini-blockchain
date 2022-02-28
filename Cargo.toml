@@ -4,4 +4,20 @@ version = "0.1.0"
 authors = ["willesxm <willeslau@gmail.com>"]
 edition = "2021"
 
+[workspace]
+members = [
+  "src/common",
+  "src/ethjson",
+  "src/ethvm",
+  "src/kv-storage",
+  "src/p2p",
+  "src/rlp",
+  "src/runtime/io",
+  "src/trie"
+]
+
+[[bin]]
+name = "mini-blockchain"
+path = "src/main.rs"
+
 [dependencies]
