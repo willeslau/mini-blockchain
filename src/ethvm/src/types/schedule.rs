@@ -10,6 +10,10 @@ pub struct Schedule {
     pub quad_coeff_div: usize,
     /// Gas prices for instructions in all tiers
     pub tier_step_gas: [usize; 8],
+    /// TODO: read up on https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1283.md
+    pub eip1283: bool,
+    /// Gas refund for `SSTORE` clearing (when `storage!=0`, `new==0`)
+    pub sstore_refund_gas: usize,
 }
 
 impl Schedule {
@@ -19,6 +23,8 @@ impl Schedule {
             memory_gas: 3,
             quad_coeff_div: 512,
             sub_gas_cap_divisor: None,
+            eip1283: false,
+            sstore_refund_gas: 15000
         }
     }
 }

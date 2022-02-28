@@ -187,8 +187,29 @@ impl<Gas: CostType> GasMeter<Gas> {
         let default_gas = Gas::from(schedule.tier_step_gas[tier]);
 
         match instruction {
-            Instruction::MSTORE | Instruction::MLOAD => {
+            Instruction::MSTORE => {
                 let mem_size = mem_add_size(stack.peek(0).as_usize(), WORD_BYTES_SIZE);
+                let mem_gas = mem_size
+                    .checked_mul(schedule.memory_gas)
+                    .expect("overflown");
+                InstructionGasRequirement::Mem {
+                    gas: not_overflow!(default_gas.overflow_add(Gas::from(mem_gas))),
+                    mem_gas: Gas::from(mem_gas),
+                    mem_size,
+                }
+            },
+            Instruction::MLOAD => {
+                let mem_gas = WORD_BYTES_SIZE
+                    .checked_mul(schedule.memory_gas)
+                    .expect("overflown");
+                InstructionGasRequirement::Mem {
+                    gas: not_overflow!(default_gas.overflow_add(Gas::from(mem_gas))),
+                    mem_gas: Gas::from(mem_gas),
+                    mem_size: 0,
+                }
+            },
+            Instruction::CODECOPY => {
+                let mem_size = mem_add_size(stack.peek(0).as_usize(), stack.peek(2).as_usize());
                 let mem_gas = mem_size
                     .checked_mul(schedule.memory_gas)
                     .expect("overflown");

@@ -4,8 +4,33 @@ use tiny_keccak::{Hasher as KeccakHasherTrait, Keccak};
 use fixed_hash::construct_fixed_hash;
 use fixed_hash::rustc_hex::FromHexError;
 use crate::Error;
+use crate::U256;
+
+pub trait BigEndianHash {
+	type Uint;
+	fn from_uint(val: &Self::Uint) -> Self;
+	fn into_uint(&self) -> Self::Uint;
+}
 
 pub const HASH_LENGTH: usize = 32;
+
+macro_rules! impl_uint_conversions {
+	($hash: ident, $uint: ident) => {
+		impl BigEndianHash for $hash {
+			type Uint = $uint;
+
+			fn from_uint(value: &$uint) -> Self {
+				let mut ret = $hash::zero();
+				value.to_big_endian(ret.as_bytes_mut());
+				ret
+			}
+
+			fn into_uint(&self) -> $uint {
+				$uint::from(self.as_ref() as &[u8])
+			}
+		}
+	};
+}
 
 construct_fixed_hash! {
     #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -50,6 +75,7 @@ macro_rules! impl_fixed_hash_rlp {
 impl_fixed_hash_rlp!(H256, 32);
 impl_fixed_hash_rlp!(H512, 64);
 
+impl_uint_conversions!(H256, U256);
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an

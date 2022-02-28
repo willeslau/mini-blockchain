@@ -20,13 +20,14 @@ impl JumpCache {
     fn find_jump_destination(code: &[u8]) -> HashSet<usize> {
         let mut set = HashSet::new();
         for pos in 0..code.len() {
-            let instruction = Instruction::from_u8(code[pos]).expect("invalid instruction code.qed");
-            match instruction {
-                Instruction::JUMPDEST => {
-                    set.insert(pos);
-                },
-                _ => {},
-            };
+            if let Some(instruction) = Instruction::from_u8(code[pos]) {
+                match instruction {
+                    Instruction::JUMPDEST => {
+                        set.insert(pos);
+                    },
+                    _ => {},
+                };
+            }
         }
         set
     }
